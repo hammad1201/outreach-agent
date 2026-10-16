@@ -1,0 +1,12 @@
+# Your business's setup and data never belong in this repo: keep them in a home folder outside it
+# (python -m outreach_agent init ~/MyBusiness). These lines catch a home kept here by mistake.
+.env
+config.toml
+profile/
+data/
+*.db
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store

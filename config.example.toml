@@ -1,0 +1,77 @@
+# Outreach settings for one business. Secrets (passwords, tokens, keys) live in .env, never here.
+
+[business]
+name = "Kite Labs"
+website = "kitelabs.example"
+# What the agent knows about you, who to look for, and how your emails should sound.
+# Paths are relative to this folder. See profile/ for a filled-in example to edit.
+facts_file = "profile/facts.md"
+segments_file = "profile/segments.md"
+examples_file = "profile/examples.md"
+# Optional HTML signature. Set to "" for plain-text emails only.
+signature_file = "profile/signature.html"
+
+[sender]
+name = "Alex Morgan"
+# The address emails come from. With Gmail, it must be your Gmail address or one added under
+# Gmail → Settings → Accounts and Import → Send mail as.
+email = "alex@kitelabs.example"
+title = "Founder, Kite Labs"
+# Optional. US (CAN-SPAM) and Canadian (CASL) law require a postal address in every commercial
+# email, so while this is empty, US and Canadian companies are skipped. A business, home,
+# coworking or virtual-mailbox street address all count.
+postal_address = ""
+
+[brain]
+# "cli" = your Claude subscription through the Claude Code command-line tool (run `claude` once to log in).
+# "api" = your Anthropic API credits (set ANTHROPIC_API_KEY in .env).
+# You can switch any time from Discord with `brain api` / `brain subscription`.
+provider = "cli"
+model = "claude-opus-5-5"
+# Hard ceiling on model calls per day, so outreach never eats the quota you need for your own work.
+max_calls_per_day = 150
+# Monthly API spending limit in dollars: API work stops for the month once it's reached (0 = no limit).
+api_budget_usd = 0
+
+[volume]
+# Emails per day start here and grow by ramp_step each day that bounces stay low, up to max_daily_cap.
+start_daily_cap = 20
+ramp_step = 5
+max_daily_cap = 150
+# Random gap between two sends, so mail goes out like a person sending it, not in a burst.
+min_gap_seconds = 120
+max_gap_seconds = 420
+# Bounce rate (of the last 50 sends) that holds the cap where it is, and that pauses sending entirely.
+hold_bounce_rate = 0.03
+pause_bounce_rate = 0.05
+
+[schedule]
+heartbeat_minutes = 10
+# Sending happens on these weekdays (0 = Monday) during these hours, in the recipient's time zone.
+send_days = [0, 1, 2, 3, 4]
+send_start_hour = 9
+send_end_hour = 16
+# Follow-up 1 goes this many days after the first email, follow-up 2 this many days after the first.
+followup_days = [4, 10]
+# Keep roughly this many drafts waiting for your approval.
+approval_queue_target = 12
+# Your local time zone, for the daily summary.
+timezone = "Europe/London"
+digest_hour = 9
+
+[targets]
+# Which sections of the segments file to search, in turn. Empty = all of them.
+segments = []
+# Countries to cold-email (ISO codes). Check the rules where you send: Germany and Austria, for
+# example, expect prior consent even for business email, so they're left out here.
+allowed_countries = ["US", "GB", "CA", "AU", "NZ", "IE"]
+# Free-mail addresses are personal inboxes, not businesses — never cold-email them.
+blocked_email_domains = ["gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com", "gmx.com", "yandex.com"]
+discovery_batch = 10
+
+[mail]
+# Gmail / Google Workspace. Other providers work too: use their SMTP and IMAP hosts.
+smtp_host = "smtp.gmail.com"
+smtp_port = 587
+imap_host = "imap.gmail.com"
+imap_port = 993
