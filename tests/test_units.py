@@ -330,3 +330,25 @@ def test_already_sent_emails_rebuild_with_their_real_ids(engine, run):
     rebuilt = engine.rebuild_sent()
     assert len(rebuilt) == 1
     assert rebuilt[0]["Message-ID"] == sent["message_id"] and rebuilt[0]["To"] == "sarah@trailcam.example"
+
+
+def test_smtp_falls_back_to_another_address_when_one_times_out(cfg, monkeypatch):
+    from outreach_agent import mailer
+    tried = []
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout):
+            tried.append(host)
+            if host == cfg.mail.smtp_host:
+                raise TimeoutError("timed out")
+            self._host = host
+
+    monkeypatch.setattr(mailer.smtplib, "SMTP", FakeSMTP)
+    monkeypatch.setattr(mailer, "_other_addresses", lambda host: ["10.0.0.1", "10.0.0.2"])
+    smtp = mailer.Mailer(cfg)._smtp()
+    assert tried == [cfg.mail.smtp_host, "10.0.0.1"]
+    assert smtp._host == cfg.mail.smtp_host          # TLS still verifies the real server name
+
+    monkeypatch.setattr(mailer, "_other_addresses", lambda host: [])
+    with pytest.raises(TimeoutError):
+        mailer.Mailer(cfg)._smtp()

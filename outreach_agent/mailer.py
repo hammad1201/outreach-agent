@@ -10,6 +10,7 @@ import imaplib
 import logging
 import re
 import smtplib
+import socket
 from dataclasses import dataclass
 from datetime import timezone
 from email.utils import parsedate_to_datetime
@@ -91,6 +92,26 @@ def compose(cfg: Config, *, to: str, subject: str, body: str, in_reply_to: str =
     return msg
 
 
+def _other_addresses(host: str) -> list[str]:
+    """The host's addresses according to public DNS, minus the ones the system resolver gave."""
+    import dns.resolver
+    try:
+        local = set(socket.gethostbyname_ex(host)[2])
+    except OSError:
+        local = set()
+    found = []
+    for server in ("1.1.1.1", "8.8.8.8", "9.9.9.9"):
+        resolver = dns.resolver.Resolver(configure=False)
+        resolver.nameservers = [server]
+        try:
+            for record in resolver.resolve(host, "A", lifetime=5):
+                if record.address not in local and record.address not in found:
+                    found.append(record.address)
+        except Exception:
+            continue
+    return found
+
+
 class Mailer:
     def __init__(self, cfg: Config, dry_run: bool = False):
         self.cfg = cfg
@@ -116,7 +137,7 @@ class Mailer:
         if not self.configured():
             raise MailError("SMTP_USER / SMTP_PASSWORD are not set in .env")
         try:
-            with smtplib.SMTP(self.cfg.mail.smtp_host, self.cfg.mail.smtp_port, timeout=30) as smtp:
+            with self._smtp() as smtp:
                 smtp.starttls()
                 smtp.login(self.user, self.password)
                 refused = smtp.send_message(msg)
@@ -134,6 +155,25 @@ class Mailer:
             except Exception as e:  # the email went out; a missing Sent copy must not undo that
                 log.warning("sent %s but couldn't file a copy in Sent: %s", msg["Message-ID"], e)
         return msg["Message-ID"]
+
+    def _smtp(self) -> smtplib.SMTP:
+        """Connect to the SMTP server. Big providers run many servers under one name, and the one the
+        local DNS hands out can be unreachable from a given network while the others work, so when
+        connecting times out, try the name's other addresses from public DNS before giving up."""
+        host, port = self.cfg.mail.smtp_host, self.cfg.mail.smtp_port
+        try:
+            return smtplib.SMTP(host, port, timeout=20)
+        except (TimeoutError, ConnectionError) as e:
+            first_error = e
+        for address in _other_addresses(host):
+            try:
+                smtp = smtplib.SMTP(address, port, timeout=15)
+            except (TimeoutError, ConnectionError):
+                continue
+            log.warning("%s timed out; sending through %s instead", host, address)
+            smtp._host = host  # STARTTLS checks the certificate against the real name, not the address
+            return smtp
+        raise first_error
 
     def _sent_folder(self, conn: imaplib.IMAP4) -> str:
         """The mailbox's Sent folder: the configured name, else the one flagged \\Sent, else a usual name."""
@@ -216,7 +256,7 @@ class Mailer:
 
     def check_login(self) -> None:
         if not self.dry_run:
-            with smtplib.SMTP(self.cfg.mail.smtp_host, self.cfg.mail.smtp_port, timeout=30) as smtp:
+            with self._smtp() as smtp:
                 smtp.starttls()
                 smtp.login(self.user, self.password)
         self._imap().logout()
