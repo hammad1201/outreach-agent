@@ -6,6 +6,7 @@ import logging
 import random
 import re
 from datetime import datetime, timedelta
+from email.utils import formatdate
 from zoneinfo import ZoneInfo
 
 from . import gate, mailer
@@ -52,6 +53,16 @@ class ConsoleNotifier(Notifier):
 
     async def alert(self, text):
         print(f"[alert] {text}")
+
+
+def _restamp(msg, message_id: str, sent_at: str | None):
+    """Give a rebuilt email the Message-ID and date it was really sent with."""
+    del msg["Message-ID"]
+    msg["Message-ID"] = message_id
+    if sent_at:
+        del msg["Date"]
+        msg["Date"] = formatdate(parse_iso(sent_at).timestamp())
+    return msg
 
 
 class Engine:
@@ -232,12 +243,7 @@ class Engine:
             self.db.execute("UPDATE messages SET status='failed', error=? WHERE id=?", ("; ".join(problems), m["id"]))
             return False
 
-        earlier = [r["message_id"] for r in self.db.all(
-            "SELECT message_id FROM messages WHERE sequence_id=? AND step<? AND message_id IS NOT NULL ORDER BY step",
-            (m["seq_id"], m["step"]))]
-        msg = mailer.compose(self.cfg, to=m["to_email"], subject=m["subject"], body=m["body"],
-                             in_reply_to=(earlier[-1] if earlier else ""),
-                             references=" ".join(earlier[:-1]))
+        msg = self._compose_step(m["seq_id"], m["step"], m["to_email"], m["subject"], m["body"])
         try:
             message_id = await asyncio.to_thread(self.mail.send, msg)
         except MailError as e:
@@ -267,6 +273,40 @@ class Engine:
         self.db.log("sent", {"sequence": m["seq_id"], "step": m["step"], "to": m["to_email"]})
         await self.notifier.sequence_changed(m["seq_id"])
         return True
+
+    def _compose_step(self, seq_id: int, step: int, to: str, subject: str, body: str):
+        """One email of a sequence, threaded under the ones already sent."""
+        earlier = [r["message_id"] for r in self.db.all(
+            "SELECT message_id FROM messages WHERE sequence_id=? AND step<? AND message_id IS NOT NULL ORDER BY step",
+            (seq_id, step))]
+        return mailer.compose(self.cfg, to=to, subject=subject, body=body,
+                              in_reply_to=(earlier[-1] if earlier else ""), references=" ".join(earlier[:-1]))
+
+    def _compose_reply(self, inc, text: str):
+        subject = inc["subject"] if re.match(r"^\s*re:", inc["subject"] or "", re.I) else f"Re: {inc['subject']}"
+        refs = " ".join(r["message_id"] for r in self.db.all(
+            "SELECT message_id FROM messages WHERE sequence_id=? AND message_id IS NOT NULL ORDER BY step",
+            (inc["sequence_id"],)))
+        return mailer.compose(self.cfg, to=inc["from_email"], subject=subject, body=text,
+                              in_reply_to=inc["message_id"], references=refs, cold=False)
+
+    def rebuild_sent(self) -> list:
+        """Every email already sent, rebuilt with its original Message-ID and date, e.g. to file
+        copies in a Sent folder after the fact."""
+        out = []
+        rows = self.db.all(
+            "SELECT m.*, ct.email AS to_email FROM messages m JOIN sequences s ON s.id = m.sequence_id"
+            " JOIN contacts ct ON ct.id = s.contact_id"
+            " WHERE m.status IN ('sent','bounced') AND m.message_id IS NOT NULL ORDER BY m.sent_at")
+        for m in rows:
+            msg = self._compose_step(m["sequence_id"], m["step"], m["to_email"], m["subject"], m["body"])
+            out.append(_restamp(msg, m["message_id"], m["sent_at"]))
+        for d in self.db.all("SELECT * FROM reply_drafts WHERE status='sent' AND sent_message_id IS NOT NULL"):
+            inc = self.db.one("SELECT * FROM inbound WHERE id=?", (d["inbound_id"],))
+            sent_at = self.db.scalar("SELECT ts FROM events WHERE kind='reply_sent' AND detail LIKE ?",
+                                     (f'%"draft": {d["id"]}}}%',), d["created_at"])
+            out.append(_restamp(self._compose_reply(inc, d["body"]), d["sent_message_id"], sent_at))
+        return out
 
     async def send_loop(self) -> None:
         while True:
@@ -417,12 +457,7 @@ class Engine:
         d = self.db.one("SELECT * FROM reply_drafts WHERE id=?", (draft_id,))
         inc = self.db.one("SELECT * FROM inbound WHERE id=?", (d["inbound_id"],))
         text = (body or d["body"]).strip()
-        subject = inc["subject"] if re.match(r"^\s*re:", inc["subject"] or "", re.I) else f"Re: {inc['subject']}"
-        refs = " ".join(r["message_id"] for r in self.db.all(
-            "SELECT message_id FROM messages WHERE sequence_id=? AND message_id IS NOT NULL ORDER BY step",
-            (inc["sequence_id"],)))
-        msg = mailer.compose(self.cfg, to=inc["from_email"], subject=subject, body=text,
-                             in_reply_to=inc["message_id"], references=refs, cold=False)
+        msg = self._compose_reply(inc, text)
         message_id = await asyncio.to_thread(self.mail.send, msg)
         self.db.execute("UPDATE reply_drafts SET status='sent', body=?, sent_message_id=? WHERE id=?",
                         (text, message_id, draft_id))

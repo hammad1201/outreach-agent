@@ -140,6 +140,17 @@ class Mail:
     smtp_port: int = 587
     imap_host: str = "imap.gmail.com"
     imap_port: int = 993
+    # File a copy of each sent email in the mailbox's Sent folder, as mail apps do. "auto" = yes,
+    # except on Gmail, whose server already files everything sent through it.
+    save_to_sent: str | bool = "auto"
+    # The Sent folder's name; found automatically when empty.
+    sent_folder: str = ""
+
+    @property
+    def saves_sent(self) -> bool:
+        if isinstance(self.save_to_sent, bool):
+            return self.save_to_sent
+        return "gmail" not in self.smtp_host.lower()
 
 
 def _build(cls, raw: dict):

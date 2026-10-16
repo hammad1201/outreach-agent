@@ -81,3 +81,6 @@ smtp_host = "smtp.gmail.com"
 smtp_port = 587
 imap_host = "imap.gmail.com"
 imap_port = 993
+# File a copy of each sent email in your Sent folder, as mail apps do. "auto" = on, except for
+# Gmail, which does it by itself. Already-sent emails: python -m outreach_agent copy-sent
+save_to_sent = "auto"

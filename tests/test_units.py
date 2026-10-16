@@ -268,3 +268,65 @@ def test_api_call_logs_every_resumed_request_and_uses_caching(tmp_path, monkeypa
             logged["requests"]) == (52_000, 1_300, 50_000, 90_000, 16, 2)
     expected = (52_000 * 4 + 50_000 * 1.25 * 4 + 90_000 * 0.20 + 1_300 * 20) / 1e6 + 16 * 0.01
     assert logged["cost"] == pytest.approx(expected, abs=1e-5)
+
+
+class FakeImap:
+    """Just enough IMAP to file a copy in Sent."""
+
+    def __init__(self, listing, existing=()):
+        self.listing, self.existing, self.appended = listing, set(existing), []
+
+    def list(self):
+        return "OK", self.listing
+
+    def select(self, box, readonly=False):
+        self.box = box
+        return "OK", [b"1"]
+
+    def search(self, charset, *criteria):
+        return "OK", [b"7" if criteria[-1] in self.existing else b""]
+
+    def append(self, box, flags, when, data):
+        self.appended.append((box, flags, data))
+        return "OK", [b"done"]
+
+    def logout(self):
+        pass
+
+
+def test_sent_copy_goes_to_the_flagged_sent_folder_once(cfg, monkeypatch):
+    from outreach_agent import mailer
+    listing = [b'(\\HasNoChildren) "/" "INBOX"', b'(\\HasNoChildren \\Sent) "/" "Sent Messages"']
+    imap = FakeImap(listing)
+    m = mailer.Mailer(cfg)
+    monkeypatch.setattr(m, "_imap", lambda: imap)
+    msg = mailer.compose(cfg, to="a@b.example", subject="hi", body="Hello there.")
+    assert m.save_copy(msg) is True
+    box, flags, data = imap.appended[0]
+    assert box == '"Sent Messages"' and "Seen" in flags and b"Hello there." in data
+    imap.existing.add(msg["Message-ID"])
+    assert m.save_copy(msg) is False and len(imap.appended) == 1      # never filed twice
+
+
+def test_sent_folder_found_by_name_without_flags(cfg, monkeypatch):
+    from outreach_agent import mailer
+    m = mailer.Mailer(cfg)
+    assert m._sent_folder(FakeImap([b'() "/" "INBOX"', b'() "/" "Sent Items"'])) == '"Sent Items"'
+
+
+def test_save_to_sent_is_off_for_gmail_only():
+    from outreach_agent.config import Mail
+    assert not Mail().saves_sent                                          # Gmail files sent mail itself
+    assert Mail(smtp_host="smtp.mail.me.com").saves_sent
+    assert not Mail(smtp_host="smtp.mail.me.com", save_to_sent=False).saves_sent
+
+
+def test_already_sent_emails_rebuild_with_their_real_ids(engine, run):
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    engine.approve(seq_id)
+    run(engine.send_one())
+    sent = engine.db.one("SELECT * FROM messages WHERE sequence_id=? AND step=1", (seq_id,))
+    rebuilt = engine.rebuild_sent()
+    assert len(rebuilt) == 1
+    assert rebuilt[0]["Message-ID"] == sent["message_id"] and rebuilt[0]["To"] == "sarah@trailcam.example"

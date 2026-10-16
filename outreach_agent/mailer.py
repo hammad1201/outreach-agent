@@ -11,6 +11,8 @@ import logging
 import re
 import smtplib
 from dataclasses import dataclass
+from datetime import timezone
+from email.utils import parsedate_to_datetime
 from email.message import EmailMessage
 from email.policy import default as default_policy
 from email.utils import formataddr, formatdate, make_msgid, parseaddr
@@ -126,7 +128,52 @@ class Mailer:
             raise MailError(f"SMTP error: {e}")
         if refused:
             raise MailError(f"recipient refused: {refused}")
+        if self.cfg.mail.saves_sent:
+            try:
+                self.save_copy(msg)
+            except Exception as e:  # the email went out; a missing Sent copy must not undo that
+                log.warning("sent %s but couldn't file a copy in Sent: %s", msg["Message-ID"], e)
         return msg["Message-ID"]
+
+    def _sent_folder(self, conn: imaplib.IMAP4) -> str:
+        """The mailbox's Sent folder: the configured name, else the one flagged \\Sent, else a usual name."""
+        if self.cfg.mail.sent_folder:
+            return self.cfg.mail.sent_folder
+        typ, boxes = conn.list()
+        names = []
+        for raw in boxes or []:
+            line = raw.decode(errors="replace") if isinstance(raw, bytes) else str(raw)
+            m = re.match(r'\((?P<flags>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$', line)
+            if not m:
+                continue
+            if "\\sent" in m["flags"].lower():
+                return m["name"].strip()
+            names.append(m["name"].strip().strip('"'))
+        for guess in ("Sent Messages", "Sent", "Sent Items", "Sent Mail"):
+            if guess in names:
+                return f'"{guess}"'
+        raise MailError("couldn't find the Sent folder; set sent_folder under [mail] in config.toml")
+
+    def save_copy(self, msg: EmailMessage) -> bool:
+        """File a copy of a sent email in the Sent folder, marked read. Skips it if already there."""
+        conn = self._imap()
+        try:
+            folder = self._sent_folder(conn)
+            typ, _ = conn.select(folder, readonly=True)
+            if typ != "OK":
+                raise MailError(f"couldn't open the Sent folder {folder}")
+            typ, data = conn.search(None, "HEADER", "Message-ID", msg["Message-ID"])
+            if (data[0] or b"").split():
+                return False
+            when = parsedate_to_datetime(msg["Date"])
+            if when.tzinfo is None:  # "-0000" dates are UTC
+                when = when.replace(tzinfo=timezone.utc)
+            typ, resp = conn.append(folder, "(\\Seen)", imaplib.Time2Internaldate(when), bytes(msg))
+            if typ != "OK":
+                raise MailError(f"the server refused the copy: {resp}")
+            return True
+        finally:
+            conn.logout()
 
     # ── read ──
 

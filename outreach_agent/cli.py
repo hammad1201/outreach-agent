@@ -7,6 +7,7 @@
   python -m outreach_agent --home ~/MyBiz run               the full system, with Discord approvals
   python -m outreach_agent --home ~/MyBiz status            numbers at a glance
   python -m outreach_agent --home ~/MyBiz send-test         send yourself a test email and check its authentication
+  python -m outreach_agent --home ~/MyBiz copy-sent         file copies of already-sent emails in your Sent folder
   python -m outreach_agent --home ~/MyBiz install-service   run in the background (macOS), start at login
   python -m outreach_agent --home ~/MyBiz uninstall-service stop the background service
 """
@@ -232,6 +233,29 @@ async def send_test(to: str | None) -> int:
     return 0
 
 
+# ── copy-sent ──
+
+def copy_sent() -> int:
+    """File copies of everything already sent in the mailbox's Sent folder (skips ones already there)."""
+    engine = build()
+    messages = engine.rebuild_sent()
+    if not messages:
+        print("Nothing has been sent yet.")
+        return 0
+    added = skipped = failed = 0
+    for msg in messages:
+        try:
+            if engine.mail.save_copy(msg):
+                added += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            failed += 1
+            print(f"  {BAD} {msg['To']} — {msg['Subject']}: {e}")
+    print(f"{OK} Filed {added} in Sent; {skipped} were already there" + (f"; {failed} failed." if failed else "."))
+    return 1 if failed else 0
+
+
 # ── new home ──
 
 CONFIG_EXAMPLE = CODE / "config.example.toml"
@@ -374,6 +398,7 @@ def main() -> None:
     t.add_argument("--to")
     sub.add_parser("pause")
     sub.add_parser("resume")
+    sub.add_parser("copy-sent", help="file copies of already-sent emails in your mailbox's Sent folder")
     sub.add_parser("install-service")
     sub.add_parser("uninstall-service")
     sub.add_parser("claude-path", help="print the Claude Code binary this will use")
@@ -401,6 +426,8 @@ def main() -> None:
     elif args.cmd == "resume":
         build().resume()
         print("Resumed.")
+    elif args.cmd == "copy-sent":
+        sys.exit(copy_sent())
     elif args.cmd == "install-service":
         sys.exit(install_service())
     elif args.cmd == "uninstall-service":

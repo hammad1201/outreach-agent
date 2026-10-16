@@ -85,6 +85,8 @@ About 20 minutes, once per business.
 2. Create an app password at <https://myaccount.google.com/apppasswords>. Put your Gmail address in `.env` as `SMTP_USER` and the app password as `SMTP_PASSWORD`.
 3. If you send from an address on your own domain that forwards to Gmail (e.g. `hello@yourbusiness.com`), add it in Gmail under **Settings → Accounts and Import → Send mail as**, and set it as `email` under `[sender]` in `config.toml`.
 
+Sent emails are filed in your mailbox's Sent folder, so you see the real conversations in your mail app (Gmail does this by itself; for other providers the agent saves the copy, see `save_to_sent`).
+
 **3. The Discord bot.**
 1. In Discord, create a private server for yourself (＋ → Create My Own) with a channel such as `#outreach`.
 2. At <https://discord.com/developers/applications>, click **New Application**, then on the **Bot** tab click **Reset Token**. Put the token in `.env` as `DISCORD_BOT_TOKEN`.
