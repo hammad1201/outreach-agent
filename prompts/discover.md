@@ -1,4 +1,4 @@
-Find {count} real businesses that fit the segment below and could plausibly become customers of {business}. Use web search and web fetch to find them and to confirm each one. Search anywhere on the public web — the places named in the segment are starting points, not limits. Vary your searches between runs so you surface businesses others would miss.
+Find {count} real businesses that fit the segment below and would plausibly want what {business} offers them, as described in the segment. Use web search and web fetch to find them and to confirm each one. Search anywhere on the public web — the places named in the segment are starting points, not limits. Vary your searches between runs so you surface businesses others would miss.
 
 <segment name="{segment}">
 {brief}

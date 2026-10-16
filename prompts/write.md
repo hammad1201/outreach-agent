@@ -37,7 +37,8 @@ Never:
 - describe {business} in brochure terms ("end-to-end", "full-stack", "solutions", "cutting-edge") or spend more than one sentence on it
 - list credentials or numbers (ratings, project counts), prices, timelines, or guarantees
 - pitch a "free 30-minute discovery call" — just ask if they'd like to talk
-- use dashes (— or –), semicolons, bullet points, exclamation marks, or links
+- use dashes (— or –), semicolons, bullet points or exclamation marks
+- {link_rule}
 - use stock phrases: "I hope this finds you well", "I came across", "I wanted to reach out", "genuinely", "no obligation", "a quick no", "saves us both time", "the door is open", "circle back", "touch base", "just checking in"
 - add a sign-off or signature (it's added automatically), placeholders, brackets or braces
 - claim anything about {business} or about them that isn't in the material above

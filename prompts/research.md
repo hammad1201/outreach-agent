@@ -14,7 +14,7 @@ Pages from their own website:
 
 Qualify it (`qualified: true`) only if all of these hold:
 - It is a real operating business, and the website matches the evidence above.
-- There is a concrete, specific reason {business} would help them — not just "every business could use this".
+- There is a concrete, specific reason what {business} offers would matter to them or to the people they serve — not just "every business could use this".
 - It fits the segment, including any "skip" rules in it, and nothing in the business facts rules them out. It is not a direct competitor of {business}, a large enterprise or a government body.
 
 `observation` is the single most important field. It is one sentence, written to them, about something specific and checkable on their site or in the evidence — the kind of detail that proves a real person looked. Good: "Your booking page still asks people to call during opening hours." Bad: "I see you're doing great things." If you can't write a specific observation, set `qualified` to false.

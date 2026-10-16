@@ -43,4 +43,13 @@ def test_init_creates_a_working_home(tmp_path):
     config.set_home(target)
     cfg = Config.load()
     assert cfg.business.name == "Kite Labs" and cfg.business.domain == "kitelabs.example"
-    assert cli.service_label() == "dev.outreach-agent.hair-book"
+    assert cli.service_label() == "dev.outreach-agent.kite-labs"     # named after the business
+
+
+def test_email_link_is_opt_in(engine, run):
+    run(engine.top_up())
+    c = engine.db.one("SELECT * FROM companies WHERE status='drafted'")
+    contact = engine.db.one("SELECT * FROM contacts WHERE company_id=?", (c["id"],))
+    assert "include links or web addresses" in engine.pipeline._write_prompt(c, contact)
+    engine.cfg.business.link_in_email = True
+    assert "other than kitelabs.example" in engine.pipeline._write_prompt(c, contact)

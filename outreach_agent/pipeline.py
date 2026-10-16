@@ -333,8 +333,12 @@ class Pipeline:
         seg = self.segments.get(c["segment"])
         examples = self.examples
         example = examples.get(c["segment"]) or examples.get("default") or "\n\n".join(examples.values())
+        b = self.cfg.business
+        link_rule = (f"include any link or web address other than {b.domain}, or mention {b.domain} more than once "
+                     "in an email (mention it as plain text, only where it helps them act)"
+                     if b.link_in_email else "include links or web addresses (your website is in the signature)")
         return self._fill(
-            "write", brief=seg.brief if seg else "", company=c["name"], domain=c["domain"], country=c["country"], segment=c["segment"],
+            "write", link_rule=link_rule, brief=seg.brief if seg else "", company=c["name"], domain=c["domain"], country=c["country"], segment=c["segment"],
             recipient=recipient, observation=c["observation"], pitch_angle=c["pitch_angle"],
             summary=c["summary"], template=example, greeting=greeting,
         )

@@ -61,6 +61,9 @@ class Business:
     segments_file: str = "profile/segments.md"
     examples_file: str = "profile/examples.md"
     signature_file: str = "profile/signature.html"
+    # Let emails mention the website once, as plain text (e.g. where to sign up). Off by default:
+    # a first cold email without links reads more personal and delivers better.
+    link_in_email: bool = False
 
     def path(self, value: str) -> Path | None:
         if not value:

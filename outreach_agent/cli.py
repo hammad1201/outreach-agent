@@ -26,7 +26,7 @@ from pathlib import Path
 
 from .brain import Brain, BrainError, _cli_binary
 from . import config
-from .config import CODE, EXAMPLE_PROFILE, Config, data_dir, env, home
+from .config import CODE, EXAMPLE_PROFILE, Business, Config, data_dir, env, home
 from .db import DB
 from .engine import Engine
 from .mailer import MailError, Mailer, compose
@@ -92,9 +92,11 @@ async def doctor(live: bool) -> int:
     domain = cfg.sender.email.split("@")[1]
     spf = [t for t in _dns_txt(domain) if t.startswith("v=spf1")]
     dmarc = [t for t in _dns_txt(f"_dmarc.{domain}") if t.startswith("v=DMARC1")]
-    dkim = _dns_txt(f"google._domainkey.{domain}")
+    # common DKIM selectors: Google, iCloud, Microsoft 365, and generic ones
+    selectors = ("google", "sig1", "selector1", "selector2", "default", "k1", "s1")
+    dkim = next((s for s in selectors if _dns_txt(f"{s}._domainkey.{domain}")), None)
     print(f"  {OK if spf else BAD} SPF {'found: ' + spf[0] if spf else 'missing'}")
-    print(f"  {OK if dkim else WARN} DKIM (google selector) {'found' if dkim else 'not found'}")
+    print(f"  {OK if dkim else WARN} DKIM {f'found ({dkim} selector)' if dkim else 'not found under the common selectors'}")
     print(f"  {OK if dmarc else WARN} DMARC {'found: ' + dmarc[0] if dmarc else 'missing'}")
 
     print(f"\nBrain — provider '{cfg.brain.provider}', model {cfg.brain.model}")
@@ -216,8 +218,9 @@ async def send_test(to: str | None) -> int:
     if cfg.sender.email.lower() in from_line.lower():
         print(f"  {OK} arrived from {cfg.sender.email}")
     else:
-        print(f"  {BAD} Gmail replaced the sender: {from_line.strip()}\n"
-              f"     Add {cfg.sender.email} under Gmail → Settings → Accounts and Import → Send mail as.")
+        print(f"  {BAD} Your mail provider replaced the sender: {from_line.strip()}\n"
+              f"     Allow {cfg.sender.email} as a sending address (Gmail: Settings → Accounts and Import → "
+              "Send mail as; iCloud: it must be one of your custom-domain addresses).")
     results = re.findall(r"^Authentication-Results:.*(?:\n[ \t].*)*", headers, re.M)
     text = " ".join(results).replace("\n", " ")
     for check in ("spf", "dkim", "dmarc"):
@@ -267,12 +270,29 @@ Next:
 # ── service ──
 
 def service_label() -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", home().name.lower()).strip("-") or "default"
+    """Named after the business (falling back to the folder), so each home gets its own service."""
+    name = Config.load().business.name if (home() / "config.toml").exists() else ""
+    if not name or name == Business.name:
+        name = home().name
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "default"
     return f"dev.outreach-agent.{slug}"
 
 
 def service_plist() -> Path:
     return Path.home() / f"Library/LaunchAgents/{service_label()}.plist"
+
+
+def _plists_for_home() -> list[Path]:
+    """Services already installed for this home, whatever they were named (e.g. before a rename)."""
+    marker = f"<string>{home()}</string>"
+    return [p for p in (Path.home() / "Library/LaunchAgents").glob("dev.outreach-agent.*.plist")
+            if marker in p.read_text(errors="replace")]
+
+
+def _remove_service(plist: Path) -> bool:
+    result = subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(plist)], capture_output=True)
+    plist.unlink(missing_ok=True)
+    return result.returncode == 0
 
 
 PLIST = """<?xml version="1.0" encoding="UTF-8"?>
@@ -304,10 +324,12 @@ def install_service() -> int:
     except BrainError:
         claude_dir = str(Path.home() / ".local/bin")
     path = f"{claude_dir}:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
-    target.write_text(PLIST.format(label=service_label(), run_sh=CODE / "run.sh", home=home(),
-                                   data=data_dir(), path=path))
+    plist_text = PLIST.format(label=service_label(), run_sh=CODE / "run.sh", home=home(),
+                              data=data_dir(), path=path)
+    for old in _plists_for_home():
+        _remove_service(old)
+    target.write_text(plist_text)
     uid = os.getuid()
-    subprocess.run(["launchctl", "bootout", f"gui/{uid}", str(target)], capture_output=True)
     result = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(target)], capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Wrote {target} but launchctl refused it: {result.stderr.strip()}")
@@ -318,11 +340,8 @@ def install_service() -> int:
 
 
 def uninstall_service() -> int:
-    target = service_plist()
-    result = subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(target)],
-                            capture_output=True, text=True)
-    target.unlink(missing_ok=True)
-    print(f"Stopped {service_label()}; it won't start at login." if result.returncode == 0
+    stopped = [_remove_service(p) for p in {service_plist(), *_plists_for_home()} if p.exists()]
+    print(f"Stopped {service_label()}; it won't start at login." if any(stopped)
           else f"{service_label()} wasn't running.")
     return 0
 

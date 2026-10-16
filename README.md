@@ -80,7 +80,7 @@ About 20 minutes, once per business.
 
 **1. Claude.** With a Claude subscription, install Claude Code, run `claude` once, log in, and `/exit`. With API credits, set `provider = "api"` in `config.toml` and add `ANTHROPIC_API_KEY` to `.env`. Optionally, set `api_budget_usd` as a monthly spending limit.
 
-**2. The mailbox (Gmail shown; any SMTP/IMAP provider works).**
+**2. The mailbox (Gmail shown; any SMTP/IMAP provider works).** For iCloud Mail, including custom domains, create an app-specific password at <https://account.apple.com>, use your iCloud address as `SMTP_USER`, and set the hosts in `[mail]` to `smtp.mail.me.com` and `imap.mail.me.com`.
 1. Turn on 2-Step Verification: <https://myaccount.google.com/security>.
 2. Create an app password at <https://myaccount.google.com/apppasswords>. Put your Gmail address in `.env` as `SMTP_USER` and the app password as `SMTP_PASSWORD`.
 3. If you send from an address on your own domain that forwards to Gmail (e.g. `hello@yourbusiness.com`), add it in Gmail under **Settings → Accounts and Import → Send mail as**, and set it as `email` under `[sender]` in `config.toml`.
@@ -149,7 +149,7 @@ Each business is its own home folder, with its own profile, mailbox, Discord cha
 .venv/bin/python -m outreach_agent init ~/Outreach/SecondBusiness
 ```
 
-Each one installs as its own background service (`dev.outreach-agent.<folder-name>`). Give each its own Discord bot or channel.
+Each one runs as its own background service, named after the business (`dev.outreach-agent.<name>`). **Give each its own Discord bot**: two programs on one bot would both receive every button press. They can share a mailbox, since each only reads replies to its own emails. Daily caps are per business; the Claude plan and your mailbox's own sending limit are shared.
 
 ## Layout
 

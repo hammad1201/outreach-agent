@@ -10,6 +10,9 @@ segments_file = "profile/segments.md"
 examples_file = "profile/examples.md"
 # Optional HTML signature. Set to "" for plain-text emails only.
 signature_file = "profile/signature.html"
+# Let emails mention your website once, as plain text, e.g. where to sign up. Off by default:
+# a first cold email without links reads more personal and lands in the inbox more often.
+link_in_email = false
 
 [sender]
 name = "Alex Morgan"
@@ -71,6 +74,8 @@ discovery_batch = 10
 
 [mail]
 # Gmail / Google Workspace. Other providers work too: use their SMTP and IMAP hosts.
+# iCloud Mail (including custom domains): smtp.mail.me.com 587, imap.mail.me.com 993, with an
+# app-specific password from account.apple.com and your iCloud address as SMTP_USER.
 smtp_host = "smtp.gmail.com"
 smtp_port = 587
 imap_host = "imap.gmail.com"
