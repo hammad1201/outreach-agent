@@ -56,8 +56,8 @@ def env(name: str, default: str = "") -> str:
 class Business:
     name: str = "Your Business"
     website: str = "example.com"
-    # Profile files, relative to the home folder (or absolute).
-    facts_file: str = "profile/facts.md"
+    # Profile files, relative to the home folder (or absolute). facts_file may also be a list.
+    facts_file: str | list = "profile/facts.md"
     segments_file: str = "profile/segments.md"
     examples_file: str = "profile/examples.md"
     signature_file: str = "profile/signature.html"
@@ -70,6 +70,10 @@ class Business:
             return None
         p = Path(value).expanduser()
         return (p if p.is_absolute() else home() / p).resolve()
+
+    def facts_paths(self) -> list[Path]:
+        files = self.facts_file if isinstance(self.facts_file, list) else [self.facts_file]
+        return [p for p in (self.path(f) for f in files) if p]
 
     @property
     def domain(self) -> str:

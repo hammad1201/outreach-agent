@@ -53,3 +53,10 @@ def test_email_link_is_opt_in(engine, run):
     assert "include links or web addresses" in engine.pipeline._write_prompt(c, contact)
     engine.cfg.business.link_in_email = True
     assert "other than kitelabs.example" in engine.pipeline._write_prompt(c, contact)
+
+
+def test_facts_can_come_from_several_files(engine, home):
+    (home / "more.md").write_text("Founded after the founder started treatment himself.")
+    engine.cfg.business.facts_file = ["profile/facts.md", "more.md", "missing.md"]
+    system = engine.pipeline.system
+    assert "connected devices" in system and "started treatment" in system

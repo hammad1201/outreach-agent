@@ -149,7 +149,7 @@ Each business is its own home folder, with its own profile, mailbox, Discord cha
 .venv/bin/python -m outreach_agent init ~/Outreach/SecondBusiness
 ```
 
-Each one runs as its own background service, named after the business (`dev.outreach-agent.<name>`). **Give each its own Discord bot**: two programs on one bot would both receive every button press. They can share a mailbox, since each only reads replies to its own emails. Daily caps are per business; the Claude plan and your mailbox's own sending limit are shared.
+Each one runs as its own background service, named after the business (`dev.outreach-agent.<name>`). **Give each its own Discord channel.** They can share one Discord bot (same token, different `DISCORD_CHANNEL_ID`): each answers only in its own channel. They can share a mailbox too, since each only reads replies to its own emails. Daily caps are per business; the Claude plan and your mailbox's own sending limit are shared.
 
 ## Layout
 

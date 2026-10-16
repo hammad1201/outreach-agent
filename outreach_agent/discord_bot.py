@@ -203,6 +203,12 @@ def is_owner(interaction: discord.Interaction) -> bool:
     return interaction.user.id == interaction.client.owner_id
 
 
+def in_my_channel(interaction: discord.Interaction) -> bool:
+    """Several businesses can share one Discord bot, each in its own channel. Every running copy
+    receives every interaction, so each answers only in its own channel and leaves the rest alone."""
+    return interaction.channel_id == interaction.client.channel_id
+
+
 async def refuse(interaction: discord.Interaction) -> None:
     await interaction.response.send_message("Only the owner can do that.", ephemeral=True)
 
@@ -226,6 +232,9 @@ class DraftButton(ui.DynamicItem[ui.Button], template=r"draft:(?P<action>[a-z]+)
     @classmethod
     async def from_custom_id(cls, interaction, item, match):
         return cls(match["action"], int(match["id"]))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return in_my_channel(interaction)
 
     async def callback(self, interaction: discord.Interaction):
         if not is_owner(interaction):
@@ -315,6 +324,9 @@ class ReplyButton(ui.DynamicItem[ui.Button], template=r"reply:(?P<action>[a-z]+)
     async def from_custom_id(cls, interaction, item, match):
         return cls(match["action"], int(match["id"]))
 
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return in_my_channel(interaction)
+
     async def callback(self, interaction: discord.Interaction):
         if not is_owner(interaction):
             return await refuse(interaction)
@@ -382,7 +394,7 @@ class OutreachBot(discord.Client):
     def __init__(self, engine: Engine, read_messages: bool = True):
         intents = discord.Intents.default()
         # Reading plain-text commands needs Discord's "Message Content Intent" switched on for the bot.
-        # Without it the bot still works: slash commands, @mentions and DMs need no special permission.
+        # Without it the bot still works: slash commands and @mentions need no special permission.
         intents.message_content = read_messages
         super().__init__(intents=intents)
         self.read_messages = read_messages
@@ -390,6 +402,7 @@ class OutreachBot(discord.Client):
         self.channel_id = int(env("DISCORD_CHANNEL_ID") or 0)
         self.owner_id = int(env("DISCORD_OWNER_ID") or 0)
         self.tree = app_commands.CommandTree(self)
+        self.tree.interaction_check = self._tree_check
         self._started = False
         engine.notifier = DiscordNotifier(self)
         register_commands(self)
@@ -481,16 +494,17 @@ class OutreachBot(discord.Client):
 
     # ── text commands ──
 
+    async def _tree_check(self, interaction: discord.Interaction) -> bool:
+        return in_my_channel(interaction)
+
     async def on_message(self, message: discord.Message):
-        if message.author.bot or message.author.id != self.owner_id:
-            return
-        in_dm = isinstance(message.channel, discord.DMChannel)
-        if not in_dm and message.channel.id != self.channel_id:
+        # Only the board channel: a bot shared by several businesses can't tell whose a DM is.
+        if message.author.bot or message.author.id != self.owner_id or message.channel.id != self.channel_id:
             return
         text = re.sub(r"<@!?\d+>", " ", message.content or "").strip().lstrip("!/").strip().lower()
         if not text:
             return
-        if not await self.run_text_command(message, text) and (in_dm or self.user in message.mentions):
+        if not await self.run_text_command(message, text) and self.user in message.mentions:
             await message.reply("I didn't catch that. Type `help` for the list.")
 
     async def run_text_command(self, message: discord.Message, text: str) -> bool:
@@ -784,15 +798,25 @@ def register_commands(bot: OutreachBot) -> None:
             note += f" (Capped at max_daily_cap = {bot.engine.cfg.volume.max_daily_cap} in config.toml.)"
         await interaction.response.send_message(note)
 
+    async def segment_choices(interaction: discord.Interaction, current: str):
+        # Suggested as you type rather than a fixed list, so businesses sharing a bot keep their own segments.
+        p = bot.engine.pipeline
+        return [app_commands.Choice(name=p.segment_label(k)[:100], value=k) for k in p.active_segments()
+                if current.lower() in f"{k} {p.segment_label(k)}".lower()][:25]
+
     @tree.command(name="find", description="Look for new prospects in one segment now")
     @owner_only()
-    @app_commands.choices(segment=[app_commands.Choice(name=bot.engine.pipeline.segment_label(k)[:100], value=k)
-                                   for k in bot.engine.pipeline.active_segments()[:25]])
-    async def find(interaction: discord.Interaction, segment: app_commands.Choice[str],
+    @app_commands.autocomplete(segment=segment_choices)
+    async def find(interaction: discord.Interaction, segment: str,
                    how_many: app_commands.Range[int, 1, 25] = 10):
-        await interaction.response.send_message(f"🔎 Searching for {how_many} {segment.name} prospects. "
+        key = bot.engine.pipeline.resolve_segment(segment)
+        if not key:
+            known = ", ".join(bot.engine.pipeline.active_segments())
+            return await interaction.response.send_message(f"Unknown segment. Try one of: {known}.", ephemeral=True)
+        await interaction.response.send_message(f"🔎 Searching for {how_many} "
+                                                f"{bot.engine.pipeline.segment_label(key)} prospects. "
                                                 "This takes a few minutes.")
-        asyncio.create_task(bot.find(segment.value, how_many))
+        asyncio.create_task(bot.find(key, how_many))
 
     @tree.command(name="queue", description="List drafts waiting for you")
     @owner_only()

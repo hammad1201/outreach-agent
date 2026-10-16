@@ -69,9 +69,11 @@ async def doctor(live: bool) -> int:
     if not (home() / "config.toml").exists():
         print(f"  {BAD} no config.toml in {home()} — create a home with `init`, or pass --home")
         problems += 1
-    for label, value in (("facts", cfg.business.facts_file), ("segments", cfg.business.segments_file),
-                         ("examples", cfg.business.examples_file), ("signature", cfg.business.signature_file)):
-        path = cfg.business.path(value)
+    files = [("facts", p) for p in cfg.business.facts_paths()] or [("facts", None)]
+    files += [(label, cfg.business.path(value)) for label, value in (
+        ("segments", cfg.business.segments_file), ("examples", cfg.business.examples_file),
+        ("signature", cfg.business.signature_file))]
+    for label, path in files:
         found = bool(path and path.exists())
         required = label in ("facts", "segments")
         print(f"  {OK if found else (BAD if required else WARN)} {label}: {path or '(none)'}"

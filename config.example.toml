@@ -5,6 +5,7 @@ name = "Kite Labs"
 website = "kitelabs.example"
 # What the agent knows about you, who to look for, and how your emails should sound.
 # Paths are relative to this folder. See profile/ for a filled-in example to edit.
+# facts_file can also be a list, e.g. ["../website/llms.txt", "profile/facts.md"].
 facts_file = "profile/facts.md"
 segments_file = "profile/segments.md"
 examples_file = "profile/examples.md"

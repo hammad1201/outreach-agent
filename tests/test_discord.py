@@ -306,3 +306,14 @@ def test_restart_closes_so_the_service_relaunches(engine, bot, run, monkeypatch)
         return msg
     msg = run(scenario())
     assert "Restarting" in msg.replies[0] and closed == [True]
+
+
+def test_shared_bot_answers_only_in_its_own_channel(bot, run):
+    """Two businesses on one bot: each copy receives every interaction and must ignore the other's."""
+    from types import SimpleNamespace
+    mine = SimpleNamespace(channel_id=123, client=bot)
+    theirs = SimpleNamespace(channel_id=999, client=bot)
+    button = d.DraftButton("approve", 1)
+    assert run(button.interaction_check(mine)) and not run(button.interaction_check(theirs))
+    assert run(d.ReplyButton("send", 1).interaction_check(mine))
+    assert run(bot.tree.interaction_check(mine)) and not run(bot.tree.interaction_check(theirs))

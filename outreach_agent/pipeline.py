@@ -171,7 +171,7 @@ class Pipeline:
 
     @property
     def system(self) -> str:
-        facts = read_profile(self.cfg.business.path(self.cfg.business.facts_file))
+        facts = "\n\n".join(filter(None, (read_profile(p) for p in self.cfg.business.facts_paths())))
         return self._fill("system", facts=facts or f"{self.cfg.business.name}, {self.cfg.business.domain}")
 
     # Profile files are re-read on use, so edits take effect without a restart.
