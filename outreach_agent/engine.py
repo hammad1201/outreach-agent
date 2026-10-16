@@ -470,6 +470,7 @@ class Engine:
         """Fill the approval queue: write drafts for qualified prospects, research new ones,
         and discover more when the pool runs low. Bounded per run so a heartbeat stays short."""
         done = {"drafted": 0, "researched": 0, "discovered": 0}
+        drafted = []
         if self.pipeline_lock.locked():
             return done
         async with self.pipeline_lock:
@@ -492,6 +493,7 @@ class Engine:
                         seq_id = await self._safely(self.pipeline.write, ready["id"])
                         if seq_id:
                             done["drafted"] += 1
+                            drafted.append(seq_id)
                             await self.notifier.draft_ready(seq_id)
                         continue
                     fresh = self.db.one("SELECT id FROM companies WHERE status='new' ORDER BY id LIMIT 1")
@@ -508,8 +510,13 @@ class Engine:
                 pass
             except BrainError as e:
                 await self._brain_alert(str(e))
-        if done["drafted"]:
-            await self.notifier.drafts_batch(done["drafted"])
+        # Each card is posted as soon as it's written, so some may already be decided by the time the
+        # run ends: count only the ones still waiting.
+        waiting = self.db.scalar(
+            f"SELECT COUNT(*) FROM sequences WHERE status='pending' AND id IN ({','.join('?' * len(drafted))})",
+            drafted, 0) if drafted else 0
+        if waiting:
+            await self.notifier.drafts_batch(waiting)
         return done
 
     async def _safely(self, fn, company_id: int):

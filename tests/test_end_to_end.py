@@ -278,3 +278,21 @@ def test_stopped_blocks_sending_but_still_honours_replies(engine, run):
     inc = _reply_to(engine, seq_id, "Please unsubscribe me.")
     run(engine.handle_inbound(inc, *engine._match_sequence(inc)))
     assert engine.db.is_suppressed("sarah@trailcam.example")  # but the unsubscribe is honoured
+
+
+def test_batch_note_counts_only_drafts_still_waiting(engine, run):
+    run(engine.top_up())
+    assert engine.recorder.batches == [1]
+
+    # the owner approves each card as it arrives, before the run ends: no "N waiting" note
+    engine.db.execute("UPDATE companies SET status='new'")
+    engine.db.execute("DELETE FROM messages"); engine.db.execute("DELETE FROM sequences")
+    engine.recorder.batches.clear()
+    original = engine.recorder.draft_ready
+
+    async def approve_at_once(seq_id):
+        await original(seq_id)
+        engine.approve(seq_id)
+    engine.recorder.draft_ready = approve_at_once
+    run(engine.top_up())
+    assert len(engine.recorder.drafts) == 2 and engine.recorder.batches == []

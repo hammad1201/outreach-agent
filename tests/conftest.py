@@ -59,13 +59,13 @@ class FakeBrain(Brain):
 
 class Recorder(Notifier):
     def __init__(self):
-        self.drafts, self.replies, self.alerts = [], [], []
+        self.drafts, self.replies, self.alerts, self.batches = [], [], [], []
 
     async def draft_ready(self, seq_id):
         self.drafts.append(seq_id)
 
     async def drafts_batch(self, count):
-        pass
+        self.batches.append(count)
 
     async def reply_received(self, inbound_id, draft_id):
         self.replies.append((inbound_id, draft_id))
