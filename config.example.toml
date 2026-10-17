@@ -85,6 +85,9 @@ preferred_inboxes = []
 page_hints = []
 # Never contact these companies: names or domains.
 exclude = []
+# When a good prospect publishes no email address: "skip" it, or "card": post the link and a ready
+# note to paste into their own form (job applications are often form-only).
+form_only = "skip"
 
 [mail]
 # Gmail / Google Workspace. Other providers work too: use their SMTP and IMAP hosts.

@@ -69,7 +69,7 @@ def _visible_text(html: str) -> tuple[str, BeautifulSoup]:
 OBFUSCATED_RE = re.compile(
     r"([A-Za-z0-9._%+\-]+)\s*[\[(\{]\s*at\s*[\])\}]\s*([A-Za-z0-9\-]+(?:\s*(?:[\[(\{]\s*dot\s*[\])\}]|\.)\s*[A-Za-z0-9\-]+)+)",
     re.I)
-CONTACT_PATHS = ["/contact", "/contact-us", "/about", "/about-us"]
+CONTACT_PATHS = ["/contact", "/contact-us", "/about", "/about-us", "/imprint", "/impressum", "/legal-notice"]
 
 
 def decode_cfemail(hex_string: str) -> str:
@@ -114,6 +114,29 @@ async def has_mx(domain: str) -> bool:
         return len(answer) > 0
     except (dns.exception.DNSException, OSError):
         return False
+
+
+async def page_emails(url: str, domain: str) -> set:
+    """Addresses at the company's own domain published on one page, e.g. the job posting that
+    led to them ("send your CV to jobs@..."), wherever it is hosted."""
+    if not url.startswith(("http://", "https://")):
+        return set()
+    headers = {"User-Agent": USER_AGENT, "Accept-Language": "en"}
+    try:
+        async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=15) as client:
+            parts = urlparse(url)
+            robots = urllib.robotparser.RobotFileParser()
+            r = await client.get(f"{parts.scheme}://{parts.netloc}/robots.txt")
+            robots.parse(r.text.splitlines() if r.status_code == 200 else [])
+            if not robots.can_fetch(USER_AGENT, url):
+                return set()
+            resp = await client.get(url)
+    except (httpx.HTTPError, ValueError):
+        return set()
+    if resp.status_code != 200 or "html" not in resp.headers.get("content-type", ""):
+        return set()
+    _, soup = await asyncio.to_thread(_visible_text, resp.text)
+    return _emails_in(resp.text, soup, normalize_domain(domain))
 
 
 async def snapshot(domain: str, max_subpages: int = 3, hints: tuple = ()) -> SiteSnapshot:

@@ -199,6 +199,39 @@ def reply_view(draft_id: int | None, status: str = "pending") -> ui.View | None:
     return view
 
 
+def manual_embed(engine: Engine, app_id: int) -> discord.Embed:
+    """A prospect with no published address: the link and a note to paste into their own form."""
+    db = engine.db
+    app = db.one("SELECT * FROM manual_apps WHERE id=?", (app_id,))
+    c = db.one("SELECT * FROM companies WHERE id=?", (app["company_id"],))
+    state = {"pending": ("📝 Apply via their form", MERIDIAN), "done": ("✅ Sent via their form", GREEN),
+             "skipped": ("✖️ Skipped", GREY)}[app["status"]]
+    embed = discord.Embed(title=clip(f"{c['name']} — {engine.pipeline.segment_label(c['segment'])}", 250),
+                          description=state[0], color=state[1])
+    link = c["evidence_url"] or f"https://{c['domain']}"
+    embed.add_field(name="Where to apply", value=clip(link, 1000), inline=False)
+    embed.add_field(name="Website", value=f"[{c['domain']}](https://{c['domain']})", inline=True)
+    embed.add_field(name="Country", value=c["country"] or "?", inline=True)
+    embed.add_field(name="Fit", value=f"{c['fit_score'] or '?'}/10", inline=True)
+    attachment = engine.cfg.sender.attachment
+    if attachment:
+        embed.add_field(name="Attach", value=f"📎 {attachment.rsplit('/', 1)[-1]}", inline=True)
+    embed.add_field(name="Why them", value=clip(c["why_fit"] or "—", 350), inline=False)
+    if c["evidence"]:
+        embed.add_field(name="What the posting says", value=clip(c["evidence"], 400), inline=False)
+    embed.add_field(name="Note to paste", value=clip(f"```\n{app['note']}\n```", 1024), inline=False)
+    return embed
+
+
+def manual_view(app_id: int, status: str) -> ui.View | None:
+    if status != "pending":
+        return None
+    view = ui.View(timeout=None)
+    view.add_item(ManualButton("done", app_id))
+    view.add_item(ManualButton("skip", app_id))
+    return view
+
+
 # ── buttons and forms ──
 
 def is_owner(interaction: discord.Interaction) -> bool:
@@ -367,6 +400,34 @@ class ReplyEditModal(ui.Modal, title="Edit your reply"):
 
 # ── the bot ──
 
+MANUAL_BUTTONS = {"done": ("I've applied", discord.ButtonStyle.success, "✅"),
+                  "skip": ("Skip", discord.ButtonStyle.secondary, "✖️")}
+
+
+class ManualButton(ui.DynamicItem[ui.Button], template=r"manual:(?P<action>[a-z]+):(?P<id>\d+)"):
+    def __init__(self, action: str, app_id: int):
+        label, style, emoji = MANUAL_BUTTONS[action]
+        super().__init__(ui.Button(label=label, style=style, emoji=emoji, custom_id=f"manual:{action}:{app_id}"))
+        self.action = action
+        self.app_id = app_id
+
+    @classmethod
+    async def from_custom_id(cls, interaction, item, match):
+        return cls(match["action"], int(match["id"]))
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        return in_my_channel(interaction)
+
+    async def callback(self, interaction: discord.Interaction):
+        if not is_owner(interaction):
+            return await refuse(interaction)
+        engine: Engine = interaction.client.engine
+        engine.decide_manual(self.app_id, self.action == "done")
+        status = engine.db.scalar("SELECT status FROM manual_apps WHERE id=?", (self.app_id,))
+        await interaction.response.edit_message(embed=manual_embed(engine, self.app_id),
+                                                view=manual_view(self.app_id, status))
+
+
 class DiscordNotifier(Notifier):
     def __init__(self, bot: "OutreachBot"):
         self.bot = bot
@@ -376,6 +437,9 @@ class DiscordNotifier(Notifier):
 
     async def sequence_changed(self, seq_id):
         await self.bot.refresh_draft(seq_id)
+
+    async def manual_ready(self, app_id):
+        await self.bot.post_manual(app_id)
 
     async def drafts_batch(self, count):
         await self.bot.say(f"<@{self.bot.owner_id}> {count} new draft{'s' if count != 1 else ''} waiting for you.")
@@ -410,7 +474,7 @@ class OutreachBot(discord.Client):
         register_commands(self)
 
     async def setup_hook(self):
-        self.add_dynamic_items(DraftButton, ReplyButton)
+        self.add_dynamic_items(DraftButton, ReplyButton, ManualButton)
 
     async def channel(self) -> discord.TextChannel:
         return self.get_channel(self.channel_id) or await self.fetch_channel(self.channel_id)
@@ -422,6 +486,10 @@ class OutreachBot(discord.Client):
         status = self.engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,))
         msg = await (await self.channel()).send(embed=draft_embed(self.engine, seq_id), view=draft_view(seq_id, status))
         self.engine.db.execute("UPDATE sequences SET discord_message_id=? WHERE id=?", (str(msg.id), seq_id))
+
+    async def post_manual(self, app_id: int) -> None:
+        msg = await (await self.channel()).send(embed=manual_embed(self.engine, app_id), view=manual_view(app_id, "pending"))
+        self.engine.db.execute("UPDATE manual_apps SET discord_message_id=? WHERE id=?", (str(msg.id), app_id))
 
     async def refresh_draft(self, seq_id: int) -> None:
         row = self.engine.db.one("SELECT status, discord_message_id FROM sequences WHERE id=?", (seq_id,))
@@ -454,6 +522,8 @@ class OutreachBot(discord.Client):
         await self.ensure_help(channel)
         for row in unposted:
             await self.post_draft(row["id"])
+        for row in self.engine.db.all("SELECT id FROM manual_apps WHERE status='pending' AND discord_message_id IS NULL"):
+            await self.post_manual(row["id"])
         # bring approved cards' delivery status up to date after a restart
         for row in self.engine.db.all("SELECT id FROM sequences WHERE status='active' AND discord_message_id IS NOT NULL"
                                       " ORDER BY id DESC LIMIT 50"):
@@ -592,10 +662,17 @@ class OutreachBot(discord.Client):
         rows = self.engine.db.all(
             "SELECT s.id, s.discord_message_id, c.name FROM sequences s JOIN companies c ON c.id=s.company_id"
             " WHERE s.status='pending' ORDER BY s.id")
-        if not rows:
+        forms = self.engine.db.all(
+            "SELECT m.id, m.discord_message_id, c.name FROM manual_apps m JOIN companies c ON c.id=m.company_id"
+            " WHERE m.status='pending' ORDER BY m.id")
+        if not rows and not forms:
             return "Nothing waiting."
-        lines = [f"#{r['id']} [{r['name']}](https://discord.com/channels/{guild_id}/{self.channel_id}/{r['discord_message_id']})"
-                 if r["discord_message_id"] and guild_id else f"#{r['id']} {r['name']}" for r in rows]
+
+        def line(r, prefix):
+            if r["discord_message_id"] and guild_id:
+                return f"{prefix}[{r['name']}](https://discord.com/channels/{guild_id}/{self.channel_id}/{r['discord_message_id']})"
+            return f"{prefix}{r['name']}"
+        lines = [line(r, f"#{r['id']} ") for r in rows] + [line(r, "📝 ") for r in forms]
         return "\n".join(lines)[:1990]
 
     async def redraft(self) -> int:
@@ -747,7 +824,8 @@ async def status_embed(engine: Engine, title: str = "Status") -> discord.Embed:
         "⏹ **Stopped** — not searching, drafting or sending (still reading replies). Type `start`."
         if s["stopped"] else ("⏸ **Sending paused** — " + (s["pause_reason"] or "by you") + ". Drafting continues.")
         if s["paused"] else "▶️ Running",
-        f"**Waiting for you:** {s['awaiting_approval']} draft(s)",
+        f"**Waiting for you:** {s['awaiting_approval']} draft(s)"
+        + (f" · {s['apply_by_form']} to apply via form" if s.get("apply_by_form") else ""),
         f"**Sent today:** {s['sent_today']} / {s['daily_cap']} · queued now: {s['queued_to_send']}",
         f"**Sequences running:** {s['active_sequences']} · **sent all-time:** {s['sent_total']}",
         f"**Replies:** {s['replies']} · **bounce rate:** {s['bounce_rate']:.1%} of last {s['bounce_sample']}",

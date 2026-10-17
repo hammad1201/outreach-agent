@@ -288,8 +288,12 @@ class Pipeline:
 
         blocked = tuple(self.cfg.targets.blocked_email_domains)
         preferred = tuple(self.cfg.targets.preferred_inboxes)
-        if web.choose_address(snap.emails, blocked_domains=blocked, preferred=preferred) is None \
-                and not env("HUNTER_API_KEY"):
+        emails = set(snap.emails)
+        if web.choose_address(emails, blocked_domains=blocked, preferred=preferred) is None and c["evidence_url"]:
+            emails |= await web.page_emails(c["evidence_url"], c["domain"])
+        manual = self.cfg.targets.form_only == "card"
+        if web.choose_address(emails, blocked_domains=blocked, preferred=preferred) is None \
+                and not env("HUNTER_API_KEY") and not manual:
             # nothing we could write to: skip before spending a model call
             self._set_status(company_id, "no_email", "no published address found")
             return "no_email"
@@ -318,9 +322,12 @@ class Pipeline:
             self._set_status(company_id, "disqualified", f"based in {country}, outside target countries")
             return "disqualified"
 
-        pick = web.choose_address(snap.emails, r["decision_maker"], r["dm_title"], blocked, preferred)
+        pick = web.choose_address(emails, r["decision_maker"], r["dm_title"], blocked, preferred)
         if pick is None:
             pick = await web.hunter_lookup(c["domain"], env("HUNTER_API_KEY"), r["decision_maker"])
+        if pick is None and manual:
+            self._set_status(company_id, "apply_manually", "no published address: apply through their form")
+            return "apply_manually"
         if pick is None or self.db.is_suppressed(pick.email):
             self._set_status(company_id, "no_email", "no published address found")
             return "no_email"
@@ -338,7 +345,10 @@ class Pipeline:
 
     def _write_prompt(self, c, contact) -> str:
         dm = c["decision_maker"] or ""
-        if contact["kind"] == "person" and contact["name"]:
+        if contact is None:
+            greeting = f"Hi {first_name(dm)}," if dm else "Hi,"
+            recipient = "their online form (there is no published email address)"
+        elif contact["kind"] == "person" and contact["name"]:
             greeting = f"Hi {first_name(contact['name'])},"
             recipient = f"{contact['name']}{', ' + contact['title'] if contact['title'] else ''} — writing to their own address"
         elif dm:
@@ -368,6 +378,23 @@ class Pipeline:
         draft = {"subject": draft["subject"].strip(), "bodies": bodies}
         return draft, gate.check_sequence(draft["subject"], bodies, company,
                                           self.cfg.business.name, self.cfg.business.domain)
+
+    async def write_note(self, company_id: int) -> int | None:
+        """For a prospect with no address: the note to paste into their own form, posted as a card."""
+        c = self.db.one("SELECT * FROM companies WHERE id = ?", (company_id,))
+        with self.activity.track(f"✍️ Writing a note for {c['name']}'s form"):
+            prompt = self._write_prompt(c, None) + (
+                "\n\nThis one won't be emailed: email1 goes into the message or cover-letter field of their "
+                "online form, and the follow-ups won't be used.")
+            draft, problems = await self._draft(prompt, c["name"])
+            if problems:
+                retry = prompt + "\n\nYour previous draft failed these checks — fix every one:\n- " + "\n- ".join(problems)
+                draft, problems = await self._draft(retry, c["name"])
+        if problems:
+            self._set_status(company_id, "error", "note failed checks: " + "; ".join(problems))
+            return None
+        return self.db.insert("INSERT INTO manual_apps(company_id, note, created_at) VALUES(?,?,?)",
+                              (company_id, draft["bodies"][0], iso()))
 
     async def write(self, company_id: int) -> int | None:
         name = self.db.scalar("SELECT name FROM companies WHERE id = ?", (company_id,), "a prospect")

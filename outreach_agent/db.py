@@ -89,6 +89,15 @@ CREATE TABLE IF NOT EXISTS reply_drafts (
     sent_message_id TEXT,
     created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS manual_apps (
+    id INTEGER PRIMARY KEY,
+    company_id INTEGER NOT NULL UNIQUE REFERENCES companies(id),
+    note TEXT NOT NULL,          -- what to paste into their form
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | done | skipped
+    discord_message_id TEXT,
+    created_at TEXT NOT NULL,
+    decided_at TEXT
+);
 CREATE TABLE IF NOT EXISTS suppression (
     value TEXT PRIMARY KEY,      -- an email address or a bare domain
     reason TEXT,

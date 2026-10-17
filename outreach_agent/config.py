@@ -145,6 +145,9 @@ class Targets:
     page_hints: list = field(default_factory=list)
     # Companies never to contact: names or domains.
     exclude: list = field(default_factory=list)
+    # When a good prospect publishes no address: "skip" it, or post a "card" with the link and a
+    # ready note for you to send through their own form (e.g. a job application form).
+    form_only: str = "skip"
 
 
 @dataclass

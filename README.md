@@ -151,6 +151,7 @@ The same loop works for anything where you'd write short, specific, personal ema
 - attach your CV with `attachment` under `[sender]`;
 - set `preferred_inboxes = ["jobs", "careers", "hiring"]` and `page_hints = ["careers", "jobs"]` under `[targets]`;
 - list companies you've already applied to in `exclude`;
+- set `form_only = "card"`, so roles that only take applications through a form still reach you, as a card with the link and a ready cover note;
 - describe the roles you want as segments, and your experience in `facts.md`.
 
 ## Several businesses

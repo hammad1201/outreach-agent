@@ -4,7 +4,7 @@ from email import message_from_bytes
 from email.message import EmailMessage
 from email.policy import default as default_policy
 
-from outreach_agent import mailer
+from outreach_agent import mailer, web
 from outreach_agent.db import iso, utcnow
 
 
@@ -307,3 +307,58 @@ def test_attachment_goes_on_the_first_email_only(engine, run, home):
     second = engine._compose_step(seq_id, 2, "a@b.example", "Re: s", "Body two.")
     assert [a.get_filename() for a in first.iter_attachments()] == ["cv.pdf"]
     assert list(second.iter_attachments()) == []
+
+
+def _site_without_addresses(monkeypatch, posting_emails=frozenset()):
+    from outreach_agent import pipeline as pipeline_mod
+
+    async def bare_snapshot(domain, max_subpages=3, hints=()):
+        return web.SiteSnapshot(domain=web.normalize_domain(domain),
+                                pages=[(f"https://{domain}/", "Trailcam Pro. Careers: apply through our form.")],
+                                emails=set(), has_mx=True)
+
+    async def posting(url, domain):
+        return set(posting_emails)
+    monkeypatch.setattr(pipeline_mod.web, "snapshot", bare_snapshot)
+    monkeypatch.setattr(pipeline_mod.web, "page_emails", posting)
+
+
+def test_address_in_the_posting_is_used_when_the_site_has_none(engine, run, monkeypatch):
+    _site_without_addresses(monkeypatch, {"jobs@trailcam.example"})
+    engine.cfg.targets.preferred_inboxes = ["jobs"]
+    run(engine.top_up())
+    assert engine.db.scalar("SELECT email FROM contacts") == "jobs@trailcam.example"
+
+
+def test_no_address_skips_by_default_and_becomes_a_form_card_when_asked(engine, run, monkeypatch):
+    _site_without_addresses(monkeypatch)
+    run(engine.top_up())
+    assert engine.db.scalar("SELECT status FROM companies") == "no_email"
+    assert engine.recorder.manual == []
+
+    engine.db.execute("UPDATE companies SET status='new'")
+    engine.cfg.targets.form_only = "card"
+    run(engine.top_up())
+    assert engine.db.scalar("SELECT status FROM companies") == "apply_manually"
+    app_id = engine.recorder.manual[0]
+    app = engine.db.one("SELECT * FROM manual_apps WHERE id=?", (app_id,))
+    assert "Trailcam" in app["note"] and app["status"] == "pending"
+    assert engine.recorder.batches[-1] == 1                       # counted as waiting for you
+    assert engine.status()["apply_by_form"] == 1
+
+    from outreach_agent import discord_bot as d
+    embed = d.manual_embed(engine, app_id)
+    assert len(embed) <= 6000 and any(f.name == "Note to paste" for f in embed.fields)
+    engine.decide_manual(app_id, done=True)
+    assert engine.db.scalar("SELECT status FROM manual_apps") == "done"
+    assert engine.db.scalar("SELECT status FROM companies") == "contacted"
+    assert d.manual_view(app_id, "done") is None
+
+
+def test_non_commercial_can_approve_us_companies_without_an_address(engine, run):
+    engine.cfg.sender.postal_address = ""
+    engine.cfg.business.commercial = False
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    assert engine.db.scalar("SELECT country FROM companies") == "US"
+    assert engine.approve(seq_id) == []

@@ -35,6 +35,7 @@ class Notifier:
     """Where the engine reports. The Discord bot implements this; the console one is for dry runs."""
 
     async def draft_ready(self, seq_id: int): ...
+    async def manual_ready(self, app_id: int): ...
     async def drafts_batch(self, count: int): ...
     async def sequence_changed(self, seq_id: int): ...
     async def reply_received(self, inbound_id: int, draft_id: int | None): ...
@@ -125,6 +126,7 @@ class Engine:
         return {
             "paused": self.paused, "pause_reason": self.db.get("pause_reason", ""), "stopped": self.stopped,
             "awaiting_approval": q("SELECT COUNT(*) FROM sequences WHERE status='pending'", default=0),
+            "apply_by_form": q("SELECT COUNT(*) FROM manual_apps WHERE status='pending'", default=0),
             "active_sequences": q("SELECT COUNT(*) FROM sequences WHERE status='active'", default=0),
             "queued_to_send": q("SELECT COUNT(*) FROM messages WHERE status='approved' AND due_at <= ?",
                                 (iso(),), 0),
@@ -139,6 +141,18 @@ class Engine:
         }
 
     # ── your decisions ──
+
+    def decide_manual(self, app_id: int, done: bool) -> None:
+        """You sent it through their form yourself, or skipped it."""
+        app = self.db.one("SELECT * FROM manual_apps WHERE id = ?", (app_id,))
+        if app is None or app["status"] != "pending":
+            return
+        self.db.execute("UPDATE manual_apps SET status=?, decided_at=? WHERE id=?",
+                        ("done" if done else "skipped", iso(), app_id))
+        self.db.execute("UPDATE companies SET status=?, status_reason=?, updated_at=? WHERE id=?",
+                        ("contacted" if done else "disqualified", "" if done else "skipped by you", iso(),
+                         app["company_id"]))
+        self.db.log("manual_done" if done else "manual_skipped", {"app": app_id})
 
     def approve(self, seq_id: int) -> list[str]:
         seq = self.db.one("SELECT * FROM sequences WHERE id = ?", (seq_id,))
@@ -204,7 +218,8 @@ class Engine:
         return local.weekday() in s.send_days and s.send_start_hour <= local.hour < s.send_end_hour
 
     def _may_email(self, country: str) -> bool:
-        return self.cfg.has_postal_address or (country or "").upper() not in ADDRESS_REQUIRED
+        return (not self.cfg.business.commercial or self.cfg.has_postal_address
+                or (country or "").upper() not in ADDRESS_REQUIRED)
 
     def _next_due(self, now: datetime):
         rows = self.db.all(
@@ -472,7 +487,7 @@ class Engine:
         """Fill the approval queue: write drafts for qualified prospects, research new ones,
         and discover more when the pool runs low. Bounded per run so a heartbeat stays short."""
         done = {"drafted": 0, "researched": 0, "discovered": 0}
-        drafted = []
+        drafted, notes = [], []
         if self.pipeline_lock.locked():
             return done
         async with self.pipeline_lock:
@@ -484,9 +499,20 @@ class Engine:
             target = self.cfg.schedule.approval_queue_target
             try:
                 while spent() < max_calls and self.brain.budget_left() > 3:
-                    pending = self.db.scalar("SELECT COUNT(*) FROM sequences WHERE status='pending'", default=0)
+                    pending = self.db.scalar("SELECT COUNT(*) FROM sequences WHERE status='pending'", default=0) \
+                        + self.db.scalar("SELECT COUNT(*) FROM manual_apps WHERE status='pending'", default=0)
                     if pending >= target:
                         break
+                    form_only = self.db.one(
+                        "SELECT c.id FROM companies c WHERE c.status='apply_manually' AND NOT EXISTS"
+                        " (SELECT 1 FROM manual_apps m WHERE m.company_id=c.id) ORDER BY c.fit_score DESC, c.id LIMIT 1")
+                    if form_only:
+                        app_id = await self._safely(self.pipeline.write_note, form_only["id"])
+                        if app_id:
+                            done["drafted"] += 1
+                            notes.append(app_id)
+                            await self.notifier.manual_ready(app_id)
+                        continue
                     ready = self.db.one(
                         "SELECT c.id FROM companies c WHERE c.status='qualified'"
                         " AND EXISTS (SELECT 1 FROM contacts ct WHERE ct.company_id=c.id)"
@@ -517,6 +543,9 @@ class Engine:
         waiting = self.db.scalar(
             f"SELECT COUNT(*) FROM sequences WHERE status='pending' AND id IN ({','.join('?' * len(drafted))})",
             drafted, 0) if drafted else 0
+        waiting += self.db.scalar(
+            f"SELECT COUNT(*) FROM manual_apps WHERE status='pending' AND id IN ({','.join('?' * len(notes))})",
+            notes, 0) if notes else 0
         if waiting:
             await self.notifier.drafts_batch(waiting)
         return done
