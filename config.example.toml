@@ -14,6 +14,9 @@ signature_file = "profile/signature.html"
 # Let emails mention your website once, as plain text, e.g. where to sign up. Off by default:
 # a first cold email without links reads more personal and lands in the inbox more often.
 link_in_email = false
+# Set to false when you're not selling anything, e.g. a job search: drops the opt-out footer and
+# List-Unsubscribe header, and the postal-address requirement for US and Canadian recipients.
+commercial = true
 
 [sender]
 name = "Alex Morgan"
@@ -25,6 +28,10 @@ title = "Founder, Kite Labs"
 # email, so while this is empty, US and Canadian companies are skipped. A business, home,
 # coworking or virtual-mailbox street address all count.
 postal_address = ""
+# Optional plain-text signature (default: name, title and website). Use \n between lines.
+# signature = "Alex Morgan\nFounder, Kite Labs\nkitelabs.example"
+# Optional file attached to the first email of each sequence, e.g. a CV for a job search.
+# attachment = "profile/cv.pdf"
 
 [brain]
 # "cli" = your Claude subscription through the Claude Code command-line tool (run `claude` once to log in).
@@ -72,6 +79,12 @@ allowed_countries = ["US", "GB", "CA", "AU", "NZ", "IE"]
 # Free-mail addresses are personal inboxes, not businesses — never cold-email them.
 blocked_email_domains = ["gmail.com", "googlemail.com", "yahoo.com", "hotmail.com", "outlook.com", "live.com", "icloud.com", "me.com", "aol.com", "proton.me", "protonmail.com", "gmx.com", "yandex.com"]
 discovery_batch = 10
+# Inboxes to write to first, even ones skipped by default, e.g. ["jobs", "careers"] for a job search.
+preferred_inboxes = []
+# Extra words marking site pages worth reading, e.g. ["careers", "jobs"].
+page_hints = []
+# Never contact these companies: names or domains.
+exclude = []
 
 [mail]
 # Gmail / Google Workspace. Other providers work too: use their SMTP and IMAP hosts.

@@ -189,6 +189,20 @@ class Pipeline:
         chosen = [s for s in self.cfg.targets.segments if s in known]
         return chosen or list(known)
 
+    def excluded(self, name: str, domain: str) -> bool:
+        """On the do-not-contact list in config: by domain, or by company name."""
+        name = clean_name(name).lower()
+        for entry in self.cfg.targets.exclude:
+            entry = entry.strip().lower()
+            if not entry:
+                continue
+            if "." in entry and " " not in entry:
+                if domain == entry or domain.endswith("." + entry):
+                    return True
+            elif name == entry or re.search(rf"\b{re.escape(entry)}\b", name):
+                return True
+        return False
+
     def resolve_segment(self, word: str) -> str | None:
         word = (word or "").strip().lower()
         for key, seg in self.segments.items():
@@ -215,7 +229,7 @@ class Pipeline:
         prompt = self._fill(
             "discover", count=count, segment=segment, brief=seg.brief, focus=focus,
             countries=", ".join(self.cfg.target_countries()),
-            exclude=", ".join(known) or "(none yet)",
+            exclude=", ".join(self.cfg.targets.exclude + known) or "(none yet)",
         )
         with self.activity.track(f"🔎 Searching for {seg.label} prospects: {focus}"):
             result = await self.brain.json(task="discover", system=self.system, prompt=prompt,
@@ -237,6 +251,8 @@ class Pipeline:
         if country not in self.cfg.target_countries():
             return False
         if self.db.one("SELECT 1 FROM suppression WHERE value = ?", (domain,)):
+            return False
+        if self.excluded(item.get("name") or "", domain):
             return False
         if self.db.one("SELECT 1 FROM companies WHERE domain = ?", (domain,)):
             return False
@@ -262,7 +278,7 @@ class Pipeline:
 
     async def _research(self, company_id: int) -> str:
         c = self.db.one("SELECT * FROM companies WHERE id = ?", (company_id,))
-        snap = await web.snapshot(c["domain"])
+        snap = await web.snapshot(c["domain"], hints=tuple(self.cfg.targets.page_hints))
         if not snap.pages:
             self._set_status(company_id, "disqualified", snap.error or "website unreachable")
             return "disqualified"
@@ -271,7 +287,9 @@ class Pipeline:
             return "disqualified"
 
         blocked = tuple(self.cfg.targets.blocked_email_domains)
-        if web.choose_address(snap.emails, blocked_domains=blocked) is None and not env("HUNTER_API_KEY"):
+        preferred = tuple(self.cfg.targets.preferred_inboxes)
+        if web.choose_address(snap.emails, blocked_domains=blocked, preferred=preferred) is None \
+                and not env("HUNTER_API_KEY"):
             # nothing we could write to: skip before spending a model call
             self._set_status(company_id, "no_email", "no published address found")
             return "no_email"
@@ -300,7 +318,7 @@ class Pipeline:
             self._set_status(company_id, "disqualified", f"based in {country}, outside target countries")
             return "disqualified"
 
-        pick = web.choose_address(snap.emails, r["decision_maker"], r["dm_title"], blocked)
+        pick = web.choose_address(snap.emails, r["decision_maker"], r["dm_title"], blocked, preferred)
         if pick is None:
             pick = await web.hunter_lookup(c["domain"], env("HUNTER_API_KEY"), r["decision_maker"])
         if pick is None or self.db.is_suppressed(pick.email):

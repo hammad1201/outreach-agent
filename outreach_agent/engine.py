@@ -279,8 +279,10 @@ class Engine:
         earlier = [r["message_id"] for r in self.db.all(
             "SELECT message_id FROM messages WHERE sequence_id=? AND step<? AND message_id IS NOT NULL ORDER BY step",
             (seq_id, step))]
+        attach = self.cfg.business.path(self.cfg.sender.attachment) if step == 1 else None
         return mailer.compose(self.cfg, to=to, subject=subject, body=body,
-                              in_reply_to=(earlier[-1] if earlier else ""), references=" ".join(earlier[:-1]))
+                              in_reply_to=(earlier[-1] if earlier else ""), references=" ".join(earlier[:-1]),
+                              attachments=(attach,) if attach else ())
 
     def _compose_reply(self, inc, text: str):
         subject = inc["subject"] if re.match(r"^\s*re:", inc["subject"] or "", re.I) else f"Re: {inc['subject']}"

@@ -296,3 +296,14 @@ def test_batch_note_counts_only_drafts_still_waiting(engine, run):
     engine.recorder.draft_ready = approve_at_once
     run(engine.top_up())
     assert len(engine.recorder.drafts) == 2 and engine.recorder.batches == []
+
+
+def test_attachment_goes_on_the_first_email_only(engine, run, home):
+    (home / "profile" / "cv.pdf").write_bytes(b"%PDF-1.4 cv")
+    engine.cfg.sender.attachment = "profile/cv.pdf"
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    first = engine._compose_step(seq_id, 1, "a@b.example", "s", "Body one.")
+    second = engine._compose_step(seq_id, 2, "a@b.example", "Re: s", "Body two.")
+    assert [a.get_filename() for a in first.iter_attachments()] == ["cv.pdf"]
+    assert list(second.iter_attachments()) == []

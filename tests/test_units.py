@@ -352,3 +352,41 @@ def test_smtp_falls_back_to_another_address_when_one_times_out(cfg, monkeypatch)
     monkeypatch.setattr(mailer, "_other_addresses", lambda host: [])
     with pytest.raises(TimeoutError):
         mailer.Mailer(cfg)._smtp()
+
+
+def test_preferred_inboxes_win_even_when_normally_skipped():
+    emails = {"jobs@acme.example", "hello@acme.example", "sam@acme.example"}
+    assert web.choose_address(emails).email != "jobs@acme.example"         # skipped by default
+    assert web.choose_address(emails, preferred=("careers", "jobs")).email == "jobs@acme.example"
+    assert web.choose_address({"support@acme.example"}, preferred=("jobs",)) is None
+
+
+def test_non_commercial_mail_has_no_optout_and_carries_the_attachment(cfg, home):
+    from outreach_agent import mailer
+    cv = home / "cv.pdf"
+    cv.write_bytes(b"%PDF-1.4 test")
+    cfg.business.commercial = False
+    cfg.sender.signature = "Sam Rivera\niOS Engineer\nlinkedin.com/in/sam"
+    msg = mailer.compose(cfg, to="jobs@acme.example", subject="ios role", body="Hi there.", attachments=(cv,))
+    plain = msg.get_body(preferencelist=("plain",)).get_content()
+    assert "unsubscribe" not in plain and msg["List-Unsubscribe"] is None
+    assert plain.rstrip().endswith("linkedin.com/in/sam")
+    files = [p for p in msg.iter_attachments() if p.get_filename()]
+    assert [f.get_filename() for f in files] == ["cv.pdf"] and files[0].get_content() == b"%PDF-1.4 test"
+
+
+def test_job_search_skips_the_postal_address_rule(cfg):
+    cfg.sender.postal_address = ""
+    cfg.targets.allowed_countries = ["US", "CA", "GB"]
+    assert cfg.target_countries() == ["GB"]
+    cfg.business.commercial = False
+    assert cfg.target_countries() == ["US", "CA", "GB"]
+
+
+def test_exclude_list_matches_names_and_domains(engine):
+    engine.cfg.targets.exclude = ["N26", "sumup.com", "Whoop"]
+    p = engine.pipeline
+    assert p.excluded("N26 GmbH", "n26.example")
+    assert p.excluded("Anything", "jobs.sumup.com")
+    assert p.excluded("WHOOP (Whoop Inc.)", "whoop.example")
+    assert not p.excluded("Swoop Labs", "swoop.example")

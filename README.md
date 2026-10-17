@@ -143,6 +143,16 @@ Type a command in the channel or use the `/` menu. The list is pinned in the cha
 
 You're responsible for complying with the anti-spam and privacy laws where you and your recipients are. The defaults (approval for every email, opt-out in every email, honouring unsubscribes, published business addresses only) are a good start, not legal advice.
 
+## Not just sales
+
+The same loop works for anything where you'd write short, specific, personal emails to organisations: a job search, partnerships, fundraising, recruiting creators. For a job search, for example:
+
+- set `commercial = false` under `[business]`, which drops the sales-style opt-out footer;
+- attach your CV with `attachment` under `[sender]`;
+- set `preferred_inboxes = ["jobs", "careers", "hiring"]` and `page_hints = ["careers", "jobs"]` under `[targets]`;
+- list companies you've already applied to in `exclude`;
+- describe the roles you want as segments, and your experience in `facts.md`.
+
 ## Several businesses
 
 Each business is its own home folder, with its own profile, mailbox, Discord channel (or server) and database:

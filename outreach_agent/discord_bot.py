@@ -100,7 +100,9 @@ def draft_embed(engine: Engine, seq_id: int) -> discord.Embed:
     where = "found on their website" if ct["source"] == "website" else f"via {ct['source']}"
     kind = "named person" if ct["kind"] == "person" else "shared inbox"
     embed.add_field(name="Website", value=f"[{c['domain']}](https://{c['domain']})", inline=True)
-    embed.add_field(name="Sends to", value=clip(f"{ct['email']}\n{kind}, {where}", 200), inline=True)
+    attachment = engine.cfg.sender.attachment
+    attached = f"\n📎 {attachment.rsplit('/', 1)[-1]}" if attachment else ""
+    embed.add_field(name="Sends to", value=clip(f"{ct['email']}\n{kind}, {where}{attached}", 250), inline=True)
     contact = c["decision_maker"] or ct["name"] or "not named on their site"
     title = c["dm_title"] or ct["title"]
     embed.add_field(name="Decision maker", value=clip(contact + (f"\n{title}" if title else ""), 200), inline=True)

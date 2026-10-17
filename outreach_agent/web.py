@@ -116,7 +116,10 @@ async def has_mx(domain: str) -> bool:
         return False
 
 
-async def snapshot(domain: str, max_subpages: int = 3) -> SiteSnapshot:
+async def snapshot(domain: str, max_subpages: int = 3, hints: tuple = ()) -> SiteSnapshot:
+    """Home page plus the most useful subpages. `hints` are extra words (e.g. "careers") whose pages
+    are read first."""
+    extra = re.compile("|".join(re.escape(h) for h in hints), re.I) if hints else None
     domain = normalize_domain(domain)
     snap = SiteSnapshot(domain=domain)
     headers = {"User-Agent": USER_AGENT, "Accept-Language": "en"}
@@ -160,8 +163,12 @@ async def snapshot(domain: str, max_subpages: int = 3) -> SiteSnapshot:
                 continue
             url = urljoin(str(home.url), href).split("#")[0]
             host = normalize_domain(url)
-            if host == domain and SUBPAGE_HINT.search(urlparse(url).path) and url not in subpages:
+            path = urlparse(url).path
+            if host == domain and (SUBPAGE_HINT.search(path) or (extra and extra.search(path))) \
+                    and url not in subpages:
                 subpages.append(url)
+        if extra:
+            subpages.sort(key=lambda u: not extra.search(urlparse(u).path))
         async def read(urls):
             for resp in await asyncio.gather(*(fetch(u) for u in urls)):
                 if resp is None or any(str(resp.url) == u for u, _ in snap.pages):
@@ -175,7 +182,8 @@ async def snapshot(domain: str, max_subpages: int = 3) -> SiteSnapshot:
             # contact pages often exist without a link from the home page
             tried = {urlparse(u).path.rstrip("/") for u, _ in snap.pages}
             base = f"{urlparse(str(home.url)).scheme}://{urlparse(str(home.url)).netloc}"
-            await read([base + p for p in CONTACT_PATHS if p not in tried])
+            paths = CONTACT_PATHS + [f"/{h.strip('/')}" for h in hints]
+            await read([base + p for p in paths if p not in tried])
 
     snap.has_mx = await has_mx(domain)
     return snap
@@ -195,16 +203,22 @@ def _first_name(full: str) -> str:
 
 
 def choose_address(emails: set, decision_maker: str = "", dm_title: str = "",
-                   blocked_domains: tuple = ()) -> Pick | None:
-    """Best address to reach the decision maker, from addresses the company itself published."""
+                   blocked_domains: tuple = (), preferred: tuple = ()) -> Pick | None:
+    """Best address to reach the decision maker, from addresses the company itself published.
+    `preferred` inboxes (e.g. "jobs", "careers") win outright, even ones normally skipped."""
+    preferred = [p.lower() for p in preferred]
     usable = []
     for email in emails:
         local, _, email_domain = email.partition("@")
-        if email_domain in blocked_domains or BAD_LOCALPARTS.match(local):
+        if email_domain in blocked_domains or (BAD_LOCALPARTS.match(local) and local not in preferred):
             continue
         usable.append(email)
     if not usable:
         return None
+    wanted = sorted((e for e in usable if e.split("@")[0] in preferred),
+                    key=lambda e: preferred.index(e.split("@")[0]))
+    if wanted:
+        return Pick(wanted[0], "role")
 
     first = _first_name(decision_maker)
     if first and len(first) > 1:

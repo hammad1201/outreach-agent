@@ -64,6 +64,9 @@ class Business:
     # Let emails mention the website once, as plain text (e.g. where to sign up). Off by default:
     # a first cold email without links reads more personal and delivers better.
     link_in_email: bool = False
+    # false when the emails aren't selling anything (e.g. a job search): no opt-out footer or
+    # List-Unsubscribe header, and no postal-address requirement for US and Canadian recipients.
+    commercial: bool = True
 
     def path(self, value: str) -> Path | None:
         if not value:
@@ -87,6 +90,10 @@ class Sender:
     email: str = "you@example.com"
     title: str = "Founder"
     postal_address: str = ""
+    # Plain-text signature; default is name, title and website on three lines.
+    signature: str = ""
+    # A file attached to the first email of each sequence (e.g. a CV), relative to the home folder.
+    attachment: str = ""
 
     @property
     def first_name(self) -> str:
@@ -132,6 +139,12 @@ class Targets:
     allowed_countries: list = field(default_factory=lambda: ["US", "GB", "CA", "AU"])
     blocked_email_domains: list = field(default_factory=list)
     discovery_batch: int = 10
+    # Inboxes to write to first, in order (e.g. ["jobs", "careers"]), even ones normally skipped.
+    preferred_inboxes: list = field(default_factory=list)
+    # Extra words that mark site pages worth reading (e.g. ["careers", "jobs"]).
+    page_hints: list = field(default_factory=list)
+    # Companies never to contact: names or domains.
+    exclude: list = field(default_factory=list)
 
 
 @dataclass
@@ -179,7 +192,7 @@ class Config:
 
     def target_countries(self) -> list[str]:
         countries = [c.upper() for c in self.targets.allowed_countries]
-        if not self.has_postal_address:
+        if self.business.commercial and not self.has_postal_address:
             countries = [c for c in countries if c not in ADDRESS_REQUIRED]
         return countries
 

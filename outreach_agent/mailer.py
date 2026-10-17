@@ -8,6 +8,7 @@ import email
 import html
 import imaplib
 import logging
+import mimetypes
 import re
 import smtplib
 import socket
@@ -33,6 +34,8 @@ class MailError(Exception):
 
 def signature(cfg: Config) -> str:
     s = cfg.sender
+    if s.signature.strip():
+        return s.signature.strip()
     return f"{s.name}\n{s.title}\n{cfg.business.domain}"
 
 
@@ -73,7 +76,9 @@ def html_body(cfg: Config, body: str, cold: bool = True) -> str | None:
 
 
 def compose(cfg: Config, *, to: str, subject: str, body: str, in_reply_to: str = "",
-            references: str = "", cold: bool = True) -> EmailMessage:
+            references: str = "", cold: bool = True, attachments: tuple = ()) -> EmailMessage:
+    # The opt-out line and List-Unsubscribe header belong on commercial email only.
+    cold = cold and cfg.business.commercial
     msg = EmailMessage()
     msg["From"] = formataddr((cfg.sender.name, cfg.sender.email))
     msg["To"] = to
@@ -89,6 +94,10 @@ def compose(cfg: Config, *, to: str, subject: str, body: str, in_reply_to: str =
     rich = html_body(cfg, body, cold)
     if rich:
         msg.add_alternative(rich, subtype="html")
+    for path in attachments:
+        kind = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        maintype, subtype = kind.split("/", 1)
+        msg.add_attachment(path.read_bytes(), maintype=maintype, subtype=subtype, filename=path.name)
     return msg
 
 

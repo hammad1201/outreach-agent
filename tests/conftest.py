@@ -101,7 +101,7 @@ def cfg():
 
 @pytest.fixture
 def site(monkeypatch):
-    async def fake_snapshot(domain, max_subpages=3):
+    async def fake_snapshot(domain, max_subpages=3, hints=()):
         return web.SiteSnapshot(domain=web.normalize_domain(domain),
                                 pages=[(f"https://{domain}/", "Trailcam Pro. Setup with the USB configurator.")],
                                 emails={"sarah@trailcam.example", "support@trailcam.example"}, has_mx=True)
