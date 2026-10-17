@@ -89,6 +89,8 @@ async def doctor(live: bool) -> int:
     print("Sender")
     if cfg.sender.postal_address.strip():
         print(f"  {OK} postal address set")
+    elif not cfg.business.commercial:
+        print(f"  {OK} no postal address needed (commercial = false)")
     else:
         print(f"  {WARN} no postal address — US and Canadian companies are skipped (their law requires one).")
         print(f"      Sending to: {', '.join(cfg.target_countries())}")
@@ -99,7 +101,10 @@ async def doctor(live: bool) -> int:
     selectors = ("google", "sig1", "selector1", "selector2", "default", "k1", "s1")
     dkim = next((s for s in selectors if _dns_txt(f"{s}._domainkey.{domain}")), None)
     print(f"  {OK if spf else BAD} SPF {'found: ' + spf[0] if spf else 'missing'}")
-    print(f"  {OK if dkim else WARN} DKIM {f'found ({dkim} selector)' if dkim else 'not found under the common selectors'}")
+    if not dkim and domain in ("gmail.com", "googlemail.com"):
+        print(f"  {OK} DKIM: Gmail signs mail from its own addresses")
+    else:
+        print(f"  {OK if dkim else WARN} DKIM {f'found ({dkim} selector)' if dkim else 'not found under the common selectors'}")
     print(f"  {OK if dmarc else WARN} DMARC {'found: ' + dmarc[0] if dmarc else 'missing'}")
 
     print(f"\nBrain — provider '{cfg.brain.provider}', model {cfg.brain.model}")
