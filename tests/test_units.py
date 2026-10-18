@@ -390,3 +390,10 @@ def test_exclude_list_matches_names_and_domains(engine):
     assert p.excluded("Anything", "jobs.sumup.com")
     assert p.excluded("WHOOP (Whoop Inc.)", "whoop.example")
     assert not p.excluded("Swoop Labs", "swoop.example")
+
+
+def test_mailto_links_with_encoded_spaces_give_clean_addresses():
+    from bs4 import BeautifulSoup
+    html = '<a href="mailto:%20info@acme.example">Email</a> <a href="mailto:Sales%40acme.example?subject=hi">x</a>'
+    found = web._emails_in(html, BeautifulSoup(html, "html.parser"), "acme.example")
+    assert found == {"info@acme.example", "sales@acme.example"}

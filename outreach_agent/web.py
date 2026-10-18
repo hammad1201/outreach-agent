@@ -10,7 +10,7 @@ import logging
 import re
 import urllib.robotparser
 from dataclasses import dataclass, field
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import dns.asyncresolver
 import dns.exception
@@ -94,12 +94,12 @@ def _emails_in(html: str, soup: BeautifulSoup, domain: str) -> set:
         found.add(f"{local}@{rest}")
     for a in soup.find_all("a", href=True):
         if a["href"].lower().startswith("mailto:"):
-            found.add(a["href"][7:].split("?")[0])
+            found.add(unquote(a["href"][7:].split("?")[0]))   # "mailto:%20info@..." is " info@..."
     root = ".".join(domain.split(".")[-2:])
     clean = set()
     for email in found:
-        email = email.strip().strip(".").lower()
-        if FILE_SUFFIX.search(email):
+        email = unquote(email).strip().strip(".").lower()
+        if FILE_SUFFIX.search(email) or not EMAIL_RE.fullmatch(email):
             continue
         email_domain = email.rsplit("@", 1)[-1]
         # Only the company's own domain (or a subdomain of it) — not their web agency's.
