@@ -69,6 +69,11 @@ approval_queue_target = 12
 # Your local time zone, for the daily summary.
 timezone = "Europe/London"
 digest_hour = 9
+# Approve drafts automatically once they pass the checks. You can also switch this from Discord
+# with `auto on` / `auto off`. Caps, send hours and the bounce pause still apply. A grace period
+# (minutes) leaves time to reject or edit a card before it's approved.
+auto_approve = false
+auto_approve_after_minutes = 0
 
 [targets]
 # Which sections of the segments file to search, in turn. Empty = all of them.

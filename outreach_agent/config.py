@@ -130,6 +130,10 @@ class Schedule:
     approval_queue_target: int = 12
     timezone: str = "UTC"
     digest_hour: int = 9
+    # Approve drafts automatically once they pass the checks (switch it in Discord with `auto on`).
+    # A grace period gives you time to reject or edit a card first.
+    auto_approve: bool = False
+    auto_approve_after_minutes: int = 0
 
 
 @dataclass

@@ -123,11 +123,13 @@ $OA uninstall-service              # stop it for good
 | ✖️ Reject | Skip this one. |
 | 🚫 Never contact | Skip, and never email anyone at this company. |
 
-Approved cards then show each email's delivery status. Replies arrive as a card that pings you, with **Send reply**, **Edit** and **I'll handle it**.
+Approved cards then show each email's delivery status.
+
+**Auto-approve** (off by default): type `auto on` and drafts that pass the checks approve themselves, optionally after a grace period (`auto_approve_after_minutes`) so you can still reject or edit a card first. The daily cap, send hours and bounce pause still apply. `auto off` turns it off. Replies arrive as a card that pings you, with **Send reply**, **Edit** and **I'll handle it**.
 
 Type a command in the channel or use the `/` menu. The list is pinned in the channel:
 
-`status` · `queue` · `approve all` · `stop` / `start` (all work) · `pause` / `resume` (sending only) · `restart` · `cap 30` · `find <segment> 5` · `redraft` · `brain api` / `brain subscription` · `credits 85.80` · `help`
+`status` · `queue` · `approve all` · `auto on` / `auto off` · `stop` / `start` (all work) · `pause` / `resume` (sending only) · `restart` · `cap 30` · `find <segment> 5` · `redraft` · `brain api` / `brain subscription` · `credits 85.80` · `help`
 
 `status` shows today's sends and cap, the queue, what it's working on right now, your Claude plan usage, and API spend. A summary posts every morning at `digest_hour`.
 

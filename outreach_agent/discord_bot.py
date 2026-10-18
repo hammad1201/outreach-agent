@@ -29,6 +29,7 @@ HELP = (
     "`status` — where things stand right now\n"
     "`queue` — drafts waiting for you\n"
     "`approve all` — approve every waiting draft\n"
+    "`auto on` · `auto off` — approve drafts automatically once they pass the checks\n"
     "`stop` · `start` — stop or start all work: searching, drafting and sending\n"
     "`pause` · `resume` — stop or restart sending only (drafting continues)\n"
     "`restart` — restart the whole program\n"
@@ -39,7 +40,7 @@ HELP = (
     "`credits 89.94` — tell me your real API balance from the Console, so `status` stays accurate\n"
     "`help` — this list"
 )
-TOPIC = ("Commands: status · start · stop · queue · approve all · pause · resume · cap 30 · find {example} 5 · "
+TOPIC = ("Commands: status · start · stop · queue · approve all · auto on/off · pause · resume · cap 30 · find {example} 5 · "
          "redraft · restart · brain api · credits · help. Type one here, or use the / menu.")
 
 
@@ -626,6 +627,8 @@ class OutreachBot(discord.Client):
             await message.reply(self.set_credits(words[1]))
         elif cmd == "brain":
             await message.reply(self.switch_brain(words[1] if len(words) > 1 else ""))
+        elif cmd in ("auto", "autoapprove", "auto-approve"):
+            await message.reply(await self.switch_auto(words[1] if len(words) > 1 else ""))
         elif cmd == "redraft":
             n = await self.redraft()
             await message.reply(f"🔄 Rewriting {n} draft(s) in the current style. New cards will appear shortly."
@@ -703,6 +706,23 @@ class OutreachBot(discord.Client):
         self.engine.db.set("credit_balance", f"{amount}|{iso()}")
         return (f"💳 Noted: ${amount:.2f} of API credits right now. `status` will count down from this as "
                 "outreach spends.")
+
+    async def switch_auto(self, choice: str) -> str:
+        engine = self.engine
+        choice = choice.lower()
+        if choice not in ("on", "off"):
+            state = "on" if engine.auto_approve else "off"
+            return f"Auto-approve is **{state}**. Type `auto on` or `auto off`."
+        engine.set_auto_approve(choice == "on")
+        if choice == "off":
+            return "Auto-approve is **off**. Drafts wait for your Approve again."
+        grace = engine.cfg.schedule.auto_approve_after_minutes
+        approved = await engine.auto_approve_due()
+        when = (f"{grace} minutes after each card appears, unless you reject or edit it first"
+                if grace > 0 else "as soon as each draft passes the checks")
+        return (f"✅ Auto-approve is **on**: drafts are approved {when}. Daily cap, send hours and the bounce pause "
+                f"still apply." + (f" Approved {approved} draft(s) already waiting." if approved else "")
+                + " Type `auto off` to stop.")
 
     def switch_brain(self, choice: str) -> str:
         brain = self.engine.brain
@@ -826,6 +846,8 @@ async def status_embed(engine: Engine, title: str = "Status") -> discord.Embed:
         if s["paused"] else "▶️ Running",
         f"**Waiting for you:** {s['awaiting_approval']} draft(s)"
         + (f" · {s['apply_by_form']} to apply via form" if s.get("apply_by_form") else ""),
+        "**Auto-approve:** " + ((f"on, after {s['auto_approve_after_minutes']} min" if s["auto_approve_after_minutes"] > 0
+                                  else "on") + " · type `auto off` to stop" if s["auto_approve"] else "off"),
         f"**Sent today:** {s['sent_today']} / {s['daily_cap']} · queued now: {s['queued_to_send']}",
         f"**Sequences running:** {s['active_sequences']} · **sent all-time:** {s['sent_total']}",
         f"**Replies:** {s['replies']} · **bounce rate:** {s['bounce_rate']:.1%} of last {s['bounce_sample']}",
@@ -916,6 +938,13 @@ def register_commands(bot: OutreachBot) -> None:
                                app_commands.Choice(name="Claude subscription", value="subscription")])
     async def brain(interaction: discord.Interaction, use: app_commands.Choice[str]):
         await interaction.response.send_message(bot.switch_brain(use.value))
+
+    @tree.command(name="auto", description="Approve drafts automatically once they pass the checks")
+    @owner_only()
+    @app_commands.choices(state=[app_commands.Choice(name="On", value="on"), app_commands.Choice(name="Off", value="off")])
+    async def auto(interaction: discord.Interaction, state: app_commands.Choice[str]):
+        await interaction.response.defer()
+        await interaction.followup.send(await bot.switch_auto(state.value))
 
     @tree.command(name="credits", description="Tell me your current API balance from the Anthropic Console")
     @owner_only()

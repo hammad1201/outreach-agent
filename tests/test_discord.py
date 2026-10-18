@@ -21,7 +21,7 @@ def test_bot_wires_itself_in(bot, engine):
     assert isinstance(bot.wired_notifier, d.DiscordNotifier)
     assert bot.owner_id == 456
     names = {c.name for c in bot.tree.get_commands()}
-    assert names == {"status", "pause", "resume", "approve_all", "cap", "find", "queue", "redraft", "help", "brain", "credits", "stop", "start", "restart"}
+    assert names == {"status", "pause", "resume", "approve_all", "cap", "find", "queue", "redraft", "help", "brain", "credits", "stop", "start", "restart", "auto"}
 
 
 def test_draft_card_and_buttons(engine, bot, run):
@@ -317,3 +317,15 @@ def test_shared_bot_answers_only_in_its_own_channel(bot, run):
     assert run(button.interaction_check(mine)) and not run(button.interaction_check(theirs))
     assert run(d.ReplyButton("send", 1).interaction_check(mine))
     assert run(bot.tree.interaction_check(mine)) and not run(bot.tree.interaction_check(theirs))
+
+
+def test_auto_command_switches_and_reports(engine, bot, run):
+    msg = FakeMessage("auto")
+    run(bot.on_message(msg))
+    assert "off" in msg.replies[0]
+    msg = FakeMessage("auto on")
+    run(bot.on_message(msg))
+    assert engine.auto_approve and "on" in msg.replies[0]
+    msg = FakeMessage("auto off")
+    run(bot.on_message(msg))
+    assert not engine.auto_approve

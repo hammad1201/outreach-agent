@@ -138,6 +138,8 @@ class Engine:
             "prospects_total": q("SELECT COUNT(*) FROM companies", default=0),
             "model_calls_today": self.brain.calls_today(), "model_call_budget": self.cfg.brain.max_calls_per_day,
             "provider": self.brain.provider,
+            "auto_approve": self.auto_approve,
+            "auto_approve_after_minutes": self.cfg.schedule.auto_approve_after_minutes,
         }
 
     # ── your decisions ──
@@ -172,6 +174,31 @@ class Engine:
         self.db.execute("UPDATE messages SET due_at=? WHERE sequence_id=? AND step=1", (now, seq_id))
         self.db.log("approved", {"sequence": seq_id})
         return []
+
+    @property
+    def auto_approve(self) -> bool:
+        """Switchable from Discord; falls back to config.toml."""
+        value = self.db.get("auto_approve")
+        return self.cfg.schedule.auto_approve if value is None else value == "1"
+
+    def set_auto_approve(self, on: bool) -> None:
+        self.db.set("auto_approve", "1" if on else "0")
+        self.db.log("auto_approve", "on" if on else "off")
+
+    async def auto_approve_due(self) -> int:
+        """With auto-approve on, approve every draft that has waited out the grace period and passes the
+        same checks as a manual approval. Caps, send windows and the bounce pause still apply."""
+        if not self.auto_approve:
+            return 0
+        cutoff = iso(utcnow() - timedelta(minutes=max(0, self.cfg.schedule.auto_approve_after_minutes)))
+        approved = 0
+        for row in self.db.all("SELECT id FROM sequences WHERE status='pending' AND created_at <= ? ORDER BY id",
+                               (cutoff,)):
+            if not self.approve(row["id"]):
+                self.db.log("auto_approved", {"sequence": row["id"]})
+                approved += 1
+                await self.notifier.sequence_changed(row["id"])
+        return approved
 
     def reject(self, seq_id: int, block: bool = False) -> None:
         seq = self.db.one("SELECT * FROM sequences WHERE id = ?", (seq_id,))
@@ -523,6 +550,8 @@ class Engine:
                             done["drafted"] += 1
                             drafted.append(seq_id)
                             await self.notifier.draft_ready(seq_id)
+                            if self.auto_approve and self.cfg.schedule.auto_approve_after_minutes <= 0:
+                                await self.auto_approve_due()
                         continue
                     fresh = self.db.one("SELECT id FROM companies WHERE status='new' ORDER BY id LIMIT 1")
                     if fresh:
@@ -593,6 +622,7 @@ class Engine:
             log.exception("inbox poll failed")
         if not self.stopped:
             await self.top_up()
+            await self.auto_approve_due()
 
     async def heartbeat_loop(self) -> None:
         while True:

@@ -1,5 +1,6 @@
 """The whole loop: discover → research → draft → approve → send → follow-up → reply."""
 
+from datetime import timedelta
 from email import message_from_bytes
 from email.message import EmailMessage
 from email.policy import default as default_policy
@@ -362,3 +363,37 @@ def test_non_commercial_can_approve_us_companies_without_an_address(engine, run)
     seq_id = engine.recorder.drafts[0]
     assert engine.db.scalar("SELECT country FROM companies") == "US"
     assert engine.approve(seq_id) == []
+
+
+def test_auto_approve_is_off_by_default_and_approves_when_on(engine, run):
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    run(engine.auto_approve_due())
+    assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "pending"
+
+    engine.set_auto_approve(True)                      # draft already waiting gets approved
+    assert run(engine.auto_approve_due()) == 1
+    assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "active"
+    assert run(engine.send_one()) is True              # and it still goes through the normal send path
+
+
+def test_auto_approve_waits_out_the_grace_period(engine, run):
+    engine.set_auto_approve(True)
+    engine.cfg.schedule.auto_approve_after_minutes = 30
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "pending"
+    old = iso(utcnow() - timedelta(minutes=31))
+    engine.db.execute("UPDATE sequences SET created_at=? WHERE id=?", (old, seq_id))
+    assert run(engine.auto_approve_due()) == 1
+
+
+def test_auto_approve_skips_drafts_that_fail_the_checks(engine, run):
+    engine.set_auto_approve(True)
+    engine.cfg.schedule.auto_approve_after_minutes = 999   # keep it pending while we break it
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    engine.db.execute("UPDATE messages SET body='Hi {name}' WHERE sequence_id=? AND step=1", (seq_id,))
+    engine.cfg.schedule.auto_approve_after_minutes = 0
+    assert run(engine.auto_approve_due()) == 0
+    assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "pending"
