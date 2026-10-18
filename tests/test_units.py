@@ -397,3 +397,9 @@ def test_mailto_links_with_encoded_spaces_give_clean_addresses():
     html = '<a href="mailto:%20info@acme.example">Email</a> <a href="mailto:Sales%40acme.example?subject=hi">x</a>'
     found = web._emails_in(html, BeautifulSoup(html, "html.parser"), "acme.example")
     assert found == {"info@acme.example", "sales@acme.example"}
+
+
+def test_placeholder_addresses_from_forms_are_never_used():
+    for fake in ("you@acme.example", "your.name@acme.example", "firstname.lastname@acme.example", "john.doe@acme.example"):
+        assert web.choose_address({fake}) is None, fake
+    assert web.choose_address({"you@acme.example", "info@acme.example"}).email == "info@acme.example"

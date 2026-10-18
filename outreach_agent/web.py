@@ -35,7 +35,10 @@ ROLE_WORDS = set(GOOD_ROLES) | {"service", "customerservice", "cs", "reception",
 BAD_LOCALPARTS = re.compile(
     r"^(no-?reply|donotreply|support|help|jobs|careers|hr|recruit\w*|privacy|legal|abuse|"
     r"billing|accounts?|invoices?|press|media|security|webmaster|postmaster|admin|dpo|gdpr|"
-    r"unsubscribe|returns|orders|shipping|example|test|your|name|email|user)$", re.I)
+    r"unsubscribe|returns|orders|shipping|example|test|your|name|email|user|"
+    # sample addresses from form placeholders ("you@company.com"), never a real inbox
+    r"you|yourname|your\.?name|your\.?email|youremail|yourmail|someone|somebody|me|myname|"
+    r"first\.?last|firstname|lastname|firstname\.lastname|john\.?doe|jane\.?doe|name\.surname)$", re.I)
 
 
 def normalize_domain(value: str) -> str:
