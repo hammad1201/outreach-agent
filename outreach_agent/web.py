@@ -14,6 +14,7 @@ from urllib.parse import unquote, urljoin, urlparse
 
 import dns.asyncresolver
 import dns.exception
+import dns.resolver
 import httpx
 from bs4 import BeautifulSoup
 
@@ -54,7 +55,8 @@ class SiteSnapshot:
     domain: str
     pages: list = field(default_factory=list)       # [(url, text)]
     emails: set = field(default_factory=set)
-    has_mx: bool = False
+    has_mx: bool | None = False      # None: the DNS lookup itself failed, so we don't know
+    transient: bool = False           # the site couldn't be reached at all (network down?), not a dead site
     error: str = ""
 
     def as_text(self, limit_per_page: int = 5000) -> str:
@@ -111,12 +113,16 @@ def _emails_in(html: str, soup: BeautifulSoup, domain: str) -> set:
     return clean
 
 
-async def has_mx(domain: str) -> bool:
+async def has_mx(domain: str) -> bool | None:
+    """True if the domain accepts mail, False if DNS says it doesn't, None if DNS couldn't be asked
+    (timeouts, no reachable nameserver, network down) — a "don't know", never a "no"."""
     try:
         answer = await dns.asyncresolver.resolve(domain, "MX", lifetime=8)
         return len(answer) > 0
-    except (dns.exception.DNSException, OSError):
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
         return False
+    except (dns.exception.DNSException, OSError):
+        return None
 
 
 async def page_emails(url: str, domain: str) -> set:
@@ -167,6 +173,10 @@ async def snapshot(domain: str, max_subpages: int = 3, hints: tuple = ()) -> Sit
                 return None
             try:
                 resp = await client.get(url)
+            except (httpx.ConnectError, httpx.ConnectTimeout):
+                if url.rstrip("/") == f"https://{domain}":
+                    snap.transient = True
+                return None
             except httpx.HTTPError:
                 return None
             if resp.status_code != 200 or "html" not in resp.headers.get("content-type", ""):

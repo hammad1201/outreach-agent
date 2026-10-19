@@ -403,3 +403,16 @@ def test_placeholder_addresses_from_forms_are_never_used():
     for fake in ("you@acme.example", "your.name@acme.example", "firstname.lastname@acme.example", "john.doe@acme.example"):
         assert web.choose_address({fake}) is None, fake
     assert web.choose_address({"you@acme.example", "info@acme.example"}).email == "info@acme.example"
+
+
+def test_has_mx_says_dont_know_when_dns_is_unreachable(monkeypatch):
+    import asyncio
+    import dns.resolver
+    async def timeout(*a, **k):
+        raise dns.resolver.LifetimeTimeout(timeout=8, errors=[])
+    async def nxdomain(*a, **k):
+        raise dns.resolver.NXDOMAIN()
+    monkeypatch.setattr(web.dns.asyncresolver, "resolve", timeout)
+    assert asyncio.run(web.has_mx("acme.example")) is None
+    monkeypatch.setattr(web.dns.asyncresolver, "resolve", nxdomain)
+    assert asyncio.run(web.has_mx("acme.example")) is False

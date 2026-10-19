@@ -397,3 +397,26 @@ def test_auto_approve_skips_drafts_that_fail_the_checks(engine, run):
     engine.cfg.schedule.auto_approve_after_minutes = 0
     assert run(engine.auto_approve_due()) == 0
     assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "pending"
+
+
+def test_dns_outage_sets_prospects_aside_instead_of_rejecting_them(engine, run, monkeypatch):
+    from outreach_agent import pipeline as pipeline_mod
+
+    async def dns_down(domain, max_subpages=3, hints=()):
+        return web.SiteSnapshot(domain=web.normalize_domain(domain),
+                                pages=[(f"https://{domain}/", "Trailcam Pro.")], emails=set(), has_mx=None)
+    monkeypatch.setattr(pipeline_mod.web, "snapshot", dns_down)
+    run(engine.top_up())
+    assert engine.db.scalar("SELECT status FROM companies") == "retry"     # not 'disqualified'
+
+    # half an hour later, with DNS back, it gets researched normally
+    engine.db.execute("UPDATE companies SET updated_at=?", (iso(utcnow() - timedelta(minutes=31)),))
+    monkeypatch.undo()
+    from outreach_agent import pipeline as p2
+    async def fine(domain, max_subpages=3, hints=()):
+        return web.SiteSnapshot(domain=web.normalize_domain(domain),
+                                pages=[(f"https://{domain}/", "Trailcam Pro.")],
+                                emails={"sarah@trailcam.example"}, has_mx=True)
+    monkeypatch.setattr(p2.web, "snapshot", fine)
+    run(engine.top_up())
+    assert engine.db.scalar("SELECT status FROM companies") == "drafted"

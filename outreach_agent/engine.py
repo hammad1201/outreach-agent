@@ -524,6 +524,9 @@ class Engine:
                 return self.brain.calls_today() - start_calls
 
             target = self.cfg.schedule.approval_queue_target
+            # prospects set aside during a network outage get another look after half an hour
+            self.db.execute("UPDATE companies SET status='new', status_reason=NULL WHERE status='retry' AND updated_at < ?",
+                            (iso(utcnow() - timedelta(minutes=30)),))
             try:
                 while spent() < max_calls and self.brain.budget_left() > 3:
                     pending = self.db.scalar("SELECT COUNT(*) FROM sequences WHERE status='pending'", default=0) \

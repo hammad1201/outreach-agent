@@ -279,6 +279,10 @@ class Pipeline:
     async def _research(self, company_id: int) -> str:
         c = self.db.one("SELECT * FROM companies WHERE id = ?", (company_id,))
         snap = await web.snapshot(c["domain"], hints=tuple(self.cfg.targets.page_hints))
+        if (snap.transient and not snap.pages) or snap.has_mx is None:
+            # couldn't reach the site or ask DNS: a network problem on our side, not a verdict on them
+            self._set_status(company_id, "retry", "network or DNS lookup failed; will retry")
+            return "retry"
         if not snap.pages:
             self._set_status(company_id, "disqualified", snap.error or "website unreachable")
             return "disqualified"
