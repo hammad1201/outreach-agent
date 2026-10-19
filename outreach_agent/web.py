@@ -107,8 +107,11 @@ def _emails_in(html: str, soup: BeautifulSoup, domain: str) -> set:
         if FILE_SUFFIX.search(email) or not EMAIL_RE.fullmatch(email):
             continue
         email_domain = email.rsplit("@", 1)[-1]
-        # Only the company's own domain (or a subdomain of it) — not their web agency's.
-        if email_domain == domain or email_domain.endswith("." + root) or email_domain == root:
+        # Only the company's own domain (or a subdomain of it) — not their web agency's. The same
+        # brand on another ending also counts (fambot.com publishing careers@fambot.ai).
+        brand = root.split(".")[0]
+        same_brand = len(brand) >= 4 and ".".join(email_domain.split(".")[-2:]).split(".")[0] == brand
+        if email_domain == domain or email_domain.endswith("." + root) or email_domain == root or same_brand:
             clean.add(email)
     return clean
 

@@ -416,3 +416,11 @@ def test_has_mx_says_dont_know_when_dns_is_unreachable(monkeypatch):
     assert asyncio.run(web.has_mx("acme.example")) is None
     monkeypatch.setattr(web.dns.asyncresolver, "resolve", nxdomain)
     assert asyncio.run(web.has_mx("acme.example")) is False
+
+
+def test_same_brand_on_another_domain_ending_counts_but_agencies_dont():
+    from bs4 import BeautifulSoup
+    html = ('<a href="mailto:careers@fambot.ai">Apply</a> <a href="mailto:hi@webagency.example">site by</a>'
+            '<a href="mailto:x@fam.io">x</a>')
+    found = web._emails_in(html, BeautifulSoup(html, "html.parser"), "fambot.com")
+    assert found == {"careers@fambot.ai"}
