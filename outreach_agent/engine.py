@@ -286,6 +286,14 @@ class Engine:
             return False
 
         msg = self._compose_step(m["seq_id"], m["step"], m["to_email"], m["subject"], m["body"])
+        # Fix the Message-ID before the first attempt and reuse it on retries. If a connection drops
+        # after the server accepted the email, a retry is then the same message (mail systems
+        # de-duplicate it), and a reply to either copy still matches.
+        if m["message_id"]:
+            del msg["Message-ID"]
+            msg["Message-ID"] = m["message_id"]
+        else:
+            self.db.execute("UPDATE messages SET message_id=? WHERE id=?", (msg["Message-ID"], m["id"]))
         try:
             message_id = await asyncio.to_thread(self.mail.send, msg)
         except MailError as e:
@@ -416,15 +424,33 @@ class Engine:
             row = self.db.one("SELECT id, sequence_id FROM messages WHERE message_id = ?", (mid,))
             if row:
                 return row["sequence_id"], row["id"]
-        address = inc.bounced_rcpt if inc.is_bounce else inc.from_email
-        if address:
-            row = self.db.one(
-                "SELECT m.id, m.sequence_id FROM messages m JOIN sequences s ON s.id=m.sequence_id"
-                " JOIN contacts ct ON ct.id=s.contact_id WHERE ct.email=? AND m.status IN ('sent','bounced')"
-                " ORDER BY m.sent_at DESC LIMIT 1", (address,))
-            if row:
-                return row["sequence_id"], row["id"]
+        address = (inc.bounced_rcpt if inc.is_bounce else inc.from_email or "").lower()
+        if not address:
+            return None, None
+        # the person we wrote to, whether or not we've recorded the send yet
+        row = self.db.one(
+            "SELECT m.id, m.sequence_id FROM messages m JOIN sequences s ON s.id=m.sequence_id"
+            " JOIN contacts ct ON ct.id=s.contact_id WHERE lower(ct.email)=? AND m.status IN ('sent','bounced','approved')"
+            " ORDER BY (m.status='approved'), m.sent_at DESC, m.step LIMIT 1", (address,))
+        if row:
+            return row["sequence_id"], row["id"]
+        # someone else at the same company (the founder answering for info@, say) — not for bounces,
+        # and never for free-mail domains, where one domain is millions of strangers
+        domain = address.rsplit("@", 1)[-1]
+        if inc.is_bounce or domain in {d.lower() for d in self.cfg.targets.blocked_email_domains}:
+            return None, None
+        row = self.db.one(
+            "SELECT m.id, m.sequence_id FROM messages m JOIN sequences s ON s.id=m.sequence_id"
+            " JOIN contacts ct ON ct.id=s.contact_id WHERE lower(ct.email) LIKE ? AND m.status IN ('sent','approved')"
+            " ORDER BY (m.status='approved'), m.sent_at DESC, m.step LIMIT 1", (f"%@{domain}",))
+        if row:
+            return row["sequence_id"], row["id"]
         return None, None
+
+    def _answers_our_mail(self, inc: mailer.Inbound) -> bool:
+        """Whether the email's threading headers point at a Message-ID from our own domain."""
+        ours = "@" + self.cfg.sender.email.rsplit("@", 1)[-1].lower() + ">"
+        return any((mid or "").lower().endswith(ours) for mid in [inc.in_reply_to, *inc.references])
 
     async def poll_inbox(self) -> int:
         if not self.mail.configured() or self.mail.dry_run:
@@ -441,6 +467,12 @@ class Engine:
                 continue
             seq_id, msg_row = self._match_sequence(inc)
             if seq_id is None:
+                if not inc.is_bounce and not inc.is_auto and self._answers_our_mail(inc):
+                    # a reply to one of our emails that can't be tied to a sequence: never drop it silently
+                    self.db.log("unmatched_reply", {"from": inc.from_email, "subject": inc.subject})
+                    await self.notifier.alert(
+                        f"📬 {inc.from_email} replied (\"{inc.subject}\"), but I couldn't match it to an email I "
+                        "sent, so it isn't on a card. It's in your inbox: answer it from there.")
                 continue
             await self.handle_inbound(inc, seq_id, msg_row)
             handled += 1

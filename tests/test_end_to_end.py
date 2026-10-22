@@ -420,3 +420,52 @@ def test_dns_outage_sets_prospects_aside_instead_of_rejecting_them(engine, run, 
     monkeypatch.setattr(p2.web, "snapshot", fine)
     run(engine.top_up())
     assert engine.db.scalar("SELECT status FROM companies") == "drafted"
+
+
+def test_a_retry_after_a_dropped_connection_reuses_the_message_id(engine, run):
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    engine.approve(seq_id)
+    attempts = []
+    real_send = engine.mail.send
+
+    def flaky_send(msg):
+        attempts.append(msg["Message-ID"])
+        if len(attempts) == 1:
+            raise mailer.MailError("SMTP error: timed out")     # delivered, but we never heard back
+        return real_send(msg)
+    engine.mail.send = flaky_send
+    assert run(engine.send_one()) is False                     # first try "fails", backoff starts
+    engine.db.set("send_backoff_until", iso(utcnow() - timedelta(seconds=1)))
+    assert run(engine.send_one()) is True
+    assert len(attempts) == 2 and attempts[0] == attempts[1]
+    assert engine.db.scalar("SELECT message_id FROM messages WHERE sequence_id=? AND step=1", (seq_id,)) == attempts[0]
+
+
+def test_reply_matches_before_the_send_is_recorded_and_from_a_colleague(engine, run):
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    engine.approve(seq_id)                                      # approved, send not recorded yet
+    inc = _reply_to(engine, seq_id, "Can you send your terms?")
+    inc.in_reply_to, inc.references = "<unknown@kitelabs.example>", []
+    assert engine._match_sequence(inc)[0] == seq_id             # by the address we wrote to
+
+    inc = _reply_to(engine, seq_id, "Dr Lee here, tell me more.", sender="dr.lee@trailcam.example")
+    inc.in_reply_to, inc.references = "", []
+    assert engine._match_sequence(inc)[0] == seq_id             # by their company's domain
+
+
+def test_unmatched_reply_to_our_mail_raises_an_alert_instead_of_vanishing(engine, run, monkeypatch):
+    stray = EmailMessage()
+    stray["From"] = "someone@elsewhere.example"
+    stray["To"] = "hello@kitelabs.example"
+    stray["Subject"] = "Re: hello"
+    stray["Message-ID"] = "<x@elsewhere.example>"
+    stray["In-Reply-To"] = "<123.456@kitelabs.example>"
+    stray.set_content("Interested, tell me more.")
+    raw = message_from_bytes(bytes(stray), policy=default_policy)
+    engine.mail.dry_run = False
+    monkeypatch.setattr(engine.mail, "configured", lambda: True)
+    monkeypatch.setattr(engine.mail, "fetch_since", lambda last, validity: ([(7, raw)], 7, "1"))
+    run(engine.poll_inbox())
+    assert any("couldn't match" in a for a in engine.recorder.alerts)
