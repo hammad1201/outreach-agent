@@ -170,10 +170,17 @@ class Engine:
             return problems
         now = iso()
         self.db.execute("UPDATE sequences SET status='active', decided_at=? WHERE id=?", (now, seq_id))
-        self.db.execute("UPDATE messages SET status='approved' WHERE sequence_id=? AND status='draft'", (seq_id,))
+        self.db.execute("UPDATE messages SET status='approved' WHERE sequence_id=? AND status='draft' AND step<=?",
+                        (seq_id, self.last_step))
+        self.db.execute("UPDATE messages SET status='cancelled' WHERE sequence_id=? AND status='draft'", (seq_id,))
         self.db.execute("UPDATE messages SET due_at=? WHERE sequence_id=? AND step=1", (now, seq_id))
         self.db.log("approved", {"sequence": seq_id})
         return []
+
+    @property
+    def last_step(self) -> int:
+        """The first email plus one follow-up per entry in followup_days (none when it's empty)."""
+        return 1 + len(self.cfg.schedule.followup_days)
 
     @property
     def auto_approve(self) -> bool:
@@ -314,6 +321,8 @@ class Engine:
             for step, days in enumerate(self.cfg.schedule.followup_days, start=2):
                 self.db.execute("UPDATE messages SET due_at=? WHERE sequence_id=? AND step=? AND status='approved'",
                                 (iso(base + timedelta(days=days)), m["seq_id"], step))
+            self.db.execute("UPDATE messages SET status='cancelled' WHERE sequence_id=? AND step>? AND status='approved'",
+                            (m["seq_id"], self.last_step))
             self.db.execute("UPDATE companies SET status='contacted', updated_at=? WHERE id ="
                             " (SELECT company_id FROM sequences WHERE id=?)", (sent_at, m["seq_id"]))
         remaining = self.db.scalar("SELECT COUNT(*) FROM messages WHERE sequence_id=? AND status='approved'",

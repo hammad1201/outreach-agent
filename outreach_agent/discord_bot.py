@@ -124,6 +124,8 @@ def draft_embed(engine: Engine, seq_id: int) -> discord.Embed:
     # the follow-ups
     days = engine.cfg.schedule.followup_days
     for m in msgs[1:]:
+        if m["step"] - 2 >= len(days) and m["status"] in ("draft", "cancelled"):
+            continue        # follow-ups are off: this one will never be sent
         when = f"day {days[m['step'] - 2]}" if m["step"] - 2 < len(days) else ""
         status = "" if m["status"] in ("draft", "approved") else f" · {m['status']}"
         embed.add_field(name=f"Follow-up {m['step'] - 1} · {when}{status}", value=clip(m["body"], 500), inline=False)

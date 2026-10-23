@@ -487,3 +487,15 @@ def test_unmatched_reply_to_our_mail_raises_an_alert_instead_of_vanishing(engine
     monkeypatch.setattr(engine.mail, "fetch_since", lambda last, validity: ([(7, raw)], 7, "1"))
     run(engine.poll_inbox())
     assert any("couldn't match" in a for a in engine.recorder.alerts)
+
+
+def test_followups_off_sends_only_first_email(engine, run):
+    engine.cfg.schedule.followup_days = []
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    engine.approve(seq_id)
+    statuses = [r["status"] for r in engine.db.all("SELECT status FROM messages WHERE sequence_id=? ORDER BY step", (seq_id,))]
+    assert statuses == ["approved", "cancelled", "cancelled"]
+    assert run(engine.send_one()) is True
+    assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "completed"
+    assert run(engine.send_one()) is False

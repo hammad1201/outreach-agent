@@ -63,6 +63,7 @@ send_days = [0, 1, 2, 3, 4]
 send_start_hour = 9
 send_end_hour = 16
 # Follow-up 1 goes this many days after the first email, follow-up 2 this many days after the first.
+# [] turns follow-ups off: only the first email is sent. [4] sends just one follow-up.
 followup_days = [4, 10]
 # Keep roughly this many drafts waiting for your approval.
 approval_queue_target = 12
