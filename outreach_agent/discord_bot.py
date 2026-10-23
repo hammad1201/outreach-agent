@@ -188,6 +188,8 @@ def reply_embed(engine: Engine, inbound_id: int, draft_id: int | None) -> discor
     if draft:
         label = {"pending": "Suggested reply", "sent": "✅ Sent", "dismissed": "Dismissed"}.get(draft["status"], "Reply")
         embed.add_field(name=label, value=clip(draft["body"], 1024), inline=False)
+    elif not engine.cfg.mail.bot_replies:
+        embed.add_field(name="Your turn", value="Answer it from your inbox. The bot doesn't reply.", inline=False)
     return embed
 
 

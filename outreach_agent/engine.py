@@ -523,13 +523,15 @@ class Engine:
         if result["classification"] == "not_interested":
             self.db.suppress(inc.from_email, "not interested")
             self.db.execute("UPDATE companies SET status='dead', updated_at=? WHERE id=?", (iso(), company["id"]))
-        if result.get("draft", "").strip():
+        if self.cfg.mail.bot_replies and result.get("draft", "").strip():
             draft_id = self.db.insert("INSERT INTO reply_drafts(inbound_id, body, created_at) VALUES(?,?,?)",
                                       (inbound_id, gate.strip_signoff(result["draft"]), iso()))
         self.db.log("reply", {"sequence": seq_id, "classification": result["classification"]})
         await self.notifier.reply_received(inbound_id, draft_id)
 
     async def send_reply(self, draft_id: int, body: str | None = None) -> str:
+        if not self.cfg.mail.bot_replies:
+            raise RuntimeError("replies are turned off (bot_replies = false): answer from your inbox")
         d = self.db.one("SELECT * FROM reply_drafts WHERE id=?", (draft_id,))
         inc = self.db.one("SELECT * FROM inbound WHERE id=?", (d["inbound_id"],))
         text = (body or d["body"]).strip()

@@ -5,6 +5,8 @@ from email import message_from_bytes
 from email.message import EmailMessage
 from email.policy import default as default_policy
 
+import pytest
+
 from outreach_agent import mailer, web
 from outreach_agent.db import iso, utcnow
 
@@ -87,6 +89,22 @@ def test_full_cycle(engine, run):
     reply = next(m for m in reply if m["To"] == "sarah@trailcam.example" and m["In-Reply-To"] == "<reply-1@trailcam.example>")
     assert "unsubscribe" not in reply.get_body(preferencelist=("plain",)).get_content()
     assert "kite-mark.png" in reply.get_body(preferencelist=("html",)).get_content()
+
+
+def test_bot_replies_off_only_notifies(engine, run):
+    engine.cfg.mail.bot_replies = False
+    run(engine.top_up())
+    seq_id = engine.recorder.drafts[0]
+    engine.approve(seq_id)
+    run(engine.send_one())
+    inc = _reply_to(engine, seq_id, "Sounds interesting, can we talk next week?")
+    run(engine.handle_inbound(inc, *engine._match_sequence(inc)))
+    assert engine.db.scalar("SELECT status FROM sequences WHERE id=?", (seq_id,)) == "stopped"
+    (inbound_id, draft_id), = engine.recorder.replies
+    assert draft_id is None
+    assert engine.db.scalar("SELECT COUNT(*) FROM reply_drafts") == 0
+    with pytest.raises(RuntimeError):
+        run(engine.send_reply(1))
 
 
 def test_unsubscribe_suppresses_company(engine, run):

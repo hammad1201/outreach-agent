@@ -125,7 +125,7 @@ $OA uninstall-service              # stop it for good
 
 Approved cards then show each email's delivery status.
 
-**Auto-approve** (off by default): type `auto on` and drafts that pass the checks approve themselves, optionally after a grace period (`auto_approve_after_minutes`) so you can still reject or edit a card first. The daily cap, send hours and bounce pause still apply. `auto off` turns it off. Replies arrive as a card that pings you, with **Send reply**, **Edit** and **I'll handle it**.
+**Auto-approve** (off by default): type `auto on` and drafts that pass the checks approve themselves, optionally after a grace period (`auto_approve_after_minutes`) so you can still reject or edit a card first. The daily cap, send hours and bounce pause still apply. `auto off` turns it off. Auto-approve never answers replies: they arrive as a card that pings you, with **Send reply**, **Edit** and **I'll handle it**. To always answer replies yourself, set `bot_replies = false` under `[mail]`, and the card only tells you who replied and what they said.
 
 Type a command in the channel or use the `/` menu. The list is pinned in the channel:
 

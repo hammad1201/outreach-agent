@@ -165,6 +165,9 @@ class Mail:
     save_to_sent: str | bool = "auto"
     # The Sent folder's name; found automatically when empty.
     sent_folder: str = ""
+    # Suggest an answer to each reply and send it from Discord. false: the bot only tells you a
+    # reply arrived, and you answer it from your own inbox.
+    bot_replies: bool = True
 
     @property
     def saves_sent(self) -> bool:
