@@ -87,6 +87,9 @@ def decode_cfemail(hex_string: str) -> str:
 
 
 def _emails_in(html: str, soup: BeautifulSoup, domain: str) -> set:
+    # Pages that embed JSON escape characters ("\u003ehelp@..." is ">help@..."); decode them first so the
+    # escape isn't read as part of the address.
+    html = re.sub(r"\\u00([0-9a-fA-F]{2})|\\x([0-9a-fA-F]{2})", lambda m: chr(int(m.group(1) or m.group(2), 16)), html)
     found = set(EMAIL_RE.findall(html))
     for tag in soup.select("[data-cfemail]"):
         found.add(decode_cfemail(tag["data-cfemail"]))

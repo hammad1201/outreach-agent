@@ -424,3 +424,9 @@ def test_same_brand_on_another_domain_ending_counts_but_agencies_dont():
             '<a href="mailto:x@fam.io">x</a>')
     found = web._emails_in(html, BeautifulSoup(html, "html.parser"), "fambot.com")
     assert found == {"careers@fambot.ai"}
+
+
+def test_json_escaped_emails_lose_the_escape():
+    html = '<script>{"text":"Contact \\u003ehelp@acme.com\\u003c/a\\u003e or \\x3esales@acme.com"}</script>'
+    from bs4 import BeautifulSoup
+    assert web._emails_in(html, BeautifulSoup(html, "html.parser"), "acme.com") == {"help@acme.com", "sales@acme.com"}
